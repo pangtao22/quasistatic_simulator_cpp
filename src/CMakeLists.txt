@@ -32,4 +32,11 @@
 
 add_library(quasistatic_simulator quasistatic_simulator.h
         quasistatic_simulator.cc)
-target_link_libraries(quasistatic_simulator drake::drake)
+target_link_libraries(quasistatic_simulator PUBLIC drake::drake)
+
+pybind11_add_module(quasistatic_simulator_py MODULE
+        quasistatic_simulator_py.cc)
+target_link_libraries(quasistatic_simulator_py PUBLIC quasistatic_simulator)
+
+add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
+target_link_libraries(run_planar_hand_ball quasistatic_simulator)

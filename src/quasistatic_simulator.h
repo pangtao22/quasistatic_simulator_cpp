@@ -4,13 +4,13 @@
 #include <string>
 #include <unordered_map>
 
+#include "drake/multibody/plant/externally_applied_spatial_force.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
 
 using ModelInstanceToVecMap =
-std::unordered_map<drake::multibody::ModelInstanceIndex,
-                           Eigen::VectorXd>;
+    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
 
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
@@ -29,24 +29,48 @@ public:
       const std::unordered_map<std::string, std::string> &object_sdf_paths,
       QuasistaticSimParameters sim_params);
 
-  void UpdateMbpConfiguration(const ModelInstanceToVecMap &q_dict) const;
+  void UpdateMbpPositions(const ModelInstanceToVecMap &q_dict);
 
-  [[nodiscard]] ModelInstanceToVecMap
-  GetCurrentConfigurationFromContext() const;
+  [[nodiscard]] ModelInstanceToVecMap GetMbpPositions() const;
 
-  void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict,
-            const double h, const double contact_detection_tolerance,
-            const bool requires_grad) const;
+  Eigen::VectorXd
+  GetPositions(drake::multibody::ModelInstanceIndex model) const;
 
   void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict,
-            const double h) const;
+            const ModelInstanceToVecMap &tau_ext_dict, const double h,
+            const double contact_detection_tolerance, const bool requires_grad);
+
+  void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
+            const ModelInstanceToVecMap &tau_ext_dict, const double h);
+
+  void GetGeneralizedForceFromExternalSpatialForce(
+      const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
+          &easf,
+      ModelInstanceToVecMap *tau_ext) const;
+
+  void CalcGravityForUnactautedModels(ModelInstanceToVecMap *tau_ext) const;
+
+  ModelInstanceToVecMap CalcTauExt(
+      const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
+          &easf_list) const;
 
   [[nodiscard]] const std::set<drake::multibody::ModelInstanceIndex> &
   get_models_all() const {
     return models_all_;
   };
+
+  const drake::geometry::QueryObject<double> &get_query_object() const {
+    return *query_object_;
+  };
+
+  const drake::multibody::MultibodyPlant<double> &get_plant() const {
+    return *plant_;
+  }
+
+  const drake::multibody::ContactResults<double> &get_contact_results() const {
+    // TODO: return non-empty contact results.
+    return contact_results_;
+  }
 
 private:
   [[nodiscard]] std::vector<int>
@@ -62,11 +86,10 @@ private:
       FindModelForBody(drake::multibody::BodyIndex) const;
 
   void CalcJacobianAndPhi(const double contact_detection_tol, int *n_c_ptr,
-                          int *n_f_ptr,
-                          drake::EigenPtr<Eigen::VectorXd> phi_ptr,
-                          drake::EigenPtr<Eigen::VectorXd> phi_constraints_ptr,
-                          drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
-                          drake::EigenPtr<Eigen::MatrixXd> J_ptr) const;
+                          int *n_f_ptr, Eigen::VectorXd *phi_ptr,
+                          Eigen::VectorXd *phi_constraints_ptr,
+                          Eigen::MatrixXd *Jn_ptr,
+                          Eigen::MatrixXd *J_ptr) const;
 
   void UpdateJacobianRows(const drake::multibody::BodyIndex &body_idx,
                           const Eigen::Ref<const Eigen::Vector3d> &pC_Body,
@@ -76,13 +99,10 @@ private:
                           drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
                           drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
 
-  void FormQAndTauH(
-      const ModelInstanceToVecMap& q_dict,
-      const ModelInstanceToVecMap& q_a_cmd_dict,
-      const ModelInstanceToVecMap& tau_ext_dict,
-      const double h,
-      drake::EigenPtr<Eigen::MatrixXd> Q_ptr,
-      drake::EigenPtr<Eigen::VectorXd> tau_h_ptr) const;
+  void FormQAndTauH(const ModelInstanceToVecMap &q_dict,
+                    const ModelInstanceToVecMap &q_a_cmd_dict,
+                    const ModelInstanceToVecMap &tau_ext_dict, const double h,
+                    Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr) const;
 
   const QuasistaticSimParameters sim_params_;
 
@@ -99,7 +119,8 @@ private:
   std::unique_ptr<drake::systems::Context<double>> context_; // Diagram.
   drake::systems::Context<double> *context_plant_{nullptr};
   drake::systems::Context<double> *context_sg_{nullptr};
-  mutable const drake::geometry::QueryObject<double> *query_object_{nullptr};
+  const drake::geometry::QueryObject<double> *query_object_{nullptr};
+  drake::multibody::ContactResults<double> contact_results_;
 
   // MBP introspection.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;

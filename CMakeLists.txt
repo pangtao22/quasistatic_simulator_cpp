@@ -31,7 +31,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 cmake_minimum_required(VERSION 3.10.2)
-project(drake_cmake_installed)
+project(quasistatic_simulator_cpp)
 
 # N.B. This is a temporary flag. It only really applies to Linux, as Mac
 # does not need X11.
@@ -51,6 +51,7 @@ find_program(PYTHON_EXECUTABLE NAMES python3
   NO_DEFAULT_PATH
 )
 find_package(PythonInterp ${FIND_PYTHON_INTERP_VERSION} MODULE REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
 
 execute_process(COMMAND ${PYTHON_EXECUTABLE}-config --exec-prefix
   OUTPUT_VARIABLE PYTHON_EXEC_PREFIX
