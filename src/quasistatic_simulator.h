@@ -9,6 +9,8 @@
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
 
+#include "qp_derivatives.h"
+
 using ModelInstanceToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
 
@@ -18,6 +20,7 @@ struct QuasistaticSimParameters {
   double contact_detection_tolerance;
   bool is_quasi_dynamic;
   bool requires_grad;
+  double gradient_lstsq_tolerance{1e-8};
 };
 
 class QuasistaticSimulator {
@@ -55,8 +58,13 @@ public:
           &easf_list) const;
 
   [[nodiscard]] const std::set<drake::multibody::ModelInstanceIndex> &
-  get_models_all() const {
+  get_all_models() const {
     return models_all_;
+  };
+
+  [[nodiscard]] const std::set<drake::multibody::ModelInstanceIndex> &
+  get_actuated_models() const {
+    return models_actuated_;
   };
 
   const drake::geometry::QueryObject<double> &get_query_object() const {
@@ -67,10 +75,17 @@ public:
     return *plant_;
   }
 
+  const drake::geometry::SceneGraph<double> &get_scene_graph() const {
+    return *sg_;
+  }
+
   const drake::multibody::ContactResults<double> &get_contact_results() const {
     // TODO: return non-empty contact results.
     return contact_results_;
   }
+
+  Eigen::MatrixXd get_Dq_nextDq() const {return Dq_nextDq_;};
+  Eigen::MatrixXd get_Dq_nextDqa_cmd() const {return Dq_nextDqa_cmd_;};
 
 private:
   [[nodiscard]] std::vector<int>
@@ -110,6 +125,12 @@ private:
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
+  // QP derivatives. Refer to the python implementation of
+  //  QuasistaticSimulator for more details.
+  std::unique_ptr<QpDerivatives> dqp_;
+  Eigen::MatrixXd Dq_nextDq_;
+  Eigen::MatrixXd Dq_nextDqa_cmd_;
+
   // Systems.
   std::unique_ptr<drake::systems::Diagram<double>> diagram_;
   drake::multibody::MultibodyPlant<double> *plant_{nullptr};
@@ -119,10 +140,14 @@ private:
   std::unique_ptr<drake::systems::Context<double>> context_; // Diagram.
   drake::systems::Context<double> *context_plant_{nullptr};
   drake::systems::Context<double> *context_sg_{nullptr};
+
+  // Internal state (for interfacing with QuasistaticSystem).
   const drake::geometry::QueryObject<double> *query_object_{nullptr};
   drake::multibody::ContactResults<double> contact_results_;
 
   // MBP introspection.
+  int n_v_a_{0};  // number of actuated DOFs.
+  int n_v_u_{0};  // number of un-actuated DOFs.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;

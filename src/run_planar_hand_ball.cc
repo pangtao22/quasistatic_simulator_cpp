@@ -5,6 +5,7 @@
 using Eigen::Vector2d;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
+using Eigen::MatrixXd;
 using std::string;
 using drake::multibody::ModelInstanceIndex;
 using std::cout;
@@ -35,7 +36,7 @@ int main() {
   sim_params.nd_per_contact = 2;
   sim_params.contact_detection_tolerance = 1.0;
   sim_params.is_quasi_dynamic = true;
-  sim_params.requires_grad = false;
+  sim_params.requires_grad = true;
 
   VectorXd Kp;
   Kp.resize(2);
@@ -63,7 +64,8 @@ int main() {
       q_sim.get_plant(), q0_dict_str);
 
   auto t_start = std::chrono::high_resolution_clock::now();
-  for (int i = 0; i < 10000; i++) {
+  const int n = 1000;
+  for (int i = 0; i < n; i++) {
     q_sim.UpdateMbpPositions(q0_dict);
     ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
     q_sim.Step(q0_dict, tau_ext_dict, 0.1);
@@ -71,10 +73,13 @@ int main() {
   }
 
   auto t_end = std::chrono::high_resolution_clock::now();
-  cout << "wall time: " <<
-    std::chrono::duration_cast<std::chrono::seconds>(t_end-t_start).count()
+  cout << "wall time microseconds per dynamics: " <<
+    std::chrono::duration_cast<std::chrono::microseconds>(t_end-t_start)
+        .count() / n
     << endl;
 
+  cout << "Dq_nextDq\n" << q_sim.get_Dq_nextDq() << endl;
+  cout << "Dq_nextDqa_cmd\n" << q_sim.get_Dq_nextDqa_cmd() << endl;
 
 //  for(const auto& [model, q_i] : q_next_dict) {
 //    cout << model << " " << q_i.transpose() << endl;

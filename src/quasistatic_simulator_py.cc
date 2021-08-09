@@ -19,7 +19,9 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
         .def_readwrite("contact_detection_tolerance",
                        &Class::contact_detection_tolerance)
         .def_readwrite("is_quasi_dynamic", &Class::is_quasi_dynamic)
-        .def_readwrite("requires_grad", &Class::requires_grad);
+        .def_readwrite("requires_grad", &Class::requires_grad)
+        .def_readwrite("gradient_lstsq_tolerance",
+                       &Class::gradient_lstsq_tolerance);
   }
 
   {
@@ -46,12 +48,17 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
                  &Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"))
         .def("calc_tau_ext", &Class::CalcTauExt)
-        .def("get_models_all", &Class::get_models_all)
+        .def("get_all_models", &Class::get_all_models)
+        .def("get_actuated_models", &Class::get_actuated_models)
         .def("get_query_object", &Class::get_query_object,
              py::return_value_policy::reference_internal)
         .def("get_plant", &Class::get_plant,
              py::return_value_policy::reference_internal)
+        .def("get_scene_graph", &Class::get_scene_graph,
+             py::return_value_policy::reference_internal)
         .def("get_contact_results", &Class::get_contact_results,
-             py::return_value_policy::reference_internal);
+             py::return_value_policy::reference_internal)
+        .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
+        .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd);
   }
 }

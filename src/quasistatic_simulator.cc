@@ -14,6 +14,8 @@ using Eigen::Vector3d;
 using Eigen::VectorXd;
 using std::string;
 using std::vector;
+using std::cout;
+using std::endl;
 
 void CreateMbp(
     drake::systems::DiagramBuilder<double> *builder,
@@ -103,6 +105,16 @@ QuasistaticSimulator::QuasistaticSimulator(
     bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
 
+  n_v_a_ = 0;
+  for (const auto& model: models_actuated_) {
+    n_v_a_ += plant_->num_velocities(model);
+  }
+
+  n_v_u_ = 0;
+  for (const auto& model: models_unactuated_) {
+    n_v_u_ += plant_->num_velocities(model);
+  }
+
   // friction coefficients.
   const auto &inspector = sg_->model_inspector();
   const auto cc = inspector.GetCollisionCandidates();
@@ -111,6 +123,9 @@ QuasistaticSimulator::QuasistaticSimulator(
     friction_coefficients_[g_idA][g_idB] = mu;
     friction_coefficients_[g_idB][g_idA] = mu;
   }
+
+  // QP derivative.
+  dqp_ = std::make_unique<QpDerivatives>(sim_params_.gradient_lstsq_tolerance);
 }
 
 std::vector<int> QuasistaticSimulator::GetVelocityIndicesForModel(
@@ -261,7 +276,6 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
       const auto d_A_W = CalcTangentVectors(n_A_W, n_d);
       const auto n_B_W = -n_A_W;
       const auto d_B_W = -d_A_W;
-
       UpdateJacobianRows(bodyA_idx, p_ACa_A, n_A_W, d_A_W, i_c, n_d, i_f_start,
                          &Jn, &Jf);
       UpdateJacobianRows(bodyB_idx, p_BCb_B, n_B_W, d_B_W, i_c, n_d, i_f_start,
@@ -366,6 +380,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const bool requires_grad) {
   auto q_dict = GetMbpPositions();
   const int n_v = plant_->num_velocities();
+  const int n_d = sim_params_.nd_per_contact;
 
   // Compute contact jacobians.
   int n_c, n_f;
@@ -408,6 +423,46 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
+
+  // gradients.
+  if (not requires_grad) {
+    return;
+  }
+
+  dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
+  const auto& DvDb = dqp_->get_DzDb();
+  const auto& DvDe = dqp_->get_DzDe();
+
+  MatrixXd Dphi_constraints_Dq(n_f, n_v);
+  int i_start = 0;
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    for (int i = i_start; i < i_start + n_d; i++) {
+      Dphi_constraints_Dq.row(i) = Jn.row(i_c);
+    }
+    i_start += n_d;
+  }
+
+  MatrixXd DbDq = MatrixXd::Zero(n_v, n_v);
+  MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v, n_v_a_);
+  int j_start = 0;
+  for (const auto& model : models_actuated_) {
+    const auto& idx_v = velocity_indices_[model];
+    const int n_v_i = idx_v.size();
+    const auto& Kq_i = robot_stiffness_[model];
+
+    for (int k = 0; k < n_v_i; k++) {
+      int i = idx_v[k];
+      int j = j_start + k;
+      DbDqa_cmd(i, j) = -h * Kq_i[k];
+      DbDq(i, i) = h * Kq_i[k];
+    }
+
+    j_start += n_v_i;
+  }
+
+  const MatrixXd Dv_nextDq = DvDb * DbDq + DvDe * Dphi_constraints_Dq / h;
+  Dq_nextDq_ = MatrixXd::Identity(n_v, n_v) + h * Dv_nextDq;
+  Dq_nextDqa_cmd_ = h * DvDb * DbDqa_cmd;
 }
 
 void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
