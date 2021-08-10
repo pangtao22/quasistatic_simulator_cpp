@@ -67,6 +67,11 @@ public:
     return models_actuated_;
   };
 
+  [[nodiscard]] const std::set<drake::multibody::ModelInstanceIndex> &
+  get_unactuated_models() const {
+    return models_unactuated_;
+  };
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };
@@ -84,8 +89,14 @@ public:
     return contact_results_;
   }
 
+  int num_actuated_dofs() const { return n_v_a_;};
+  int num_unactuated_dofs() const { return n_v_u_;};
+
   Eigen::MatrixXd get_Dq_nextDq() const {return Dq_nextDq_;};
   Eigen::MatrixXd get_Dq_nextDqa_cmd() const {return Dq_nextDqa_cmd_;};
+
+  std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
+    get_velocity_indices() const { return velocity_indices_; };
 
 private:
   [[nodiscard]] std::vector<int>

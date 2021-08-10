@@ -50,6 +50,7 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
         .def("calc_tau_ext", &Class::CalcTauExt)
         .def("get_all_models", &Class::get_all_models)
         .def("get_actuated_models", &Class::get_actuated_models)
+        .def("get_unactuated_models", &Class::get_unactuated_models)
         .def("get_query_object", &Class::get_query_object,
              py::return_value_policy::reference_internal)
         .def("get_plant", &Class::get_plant,
@@ -58,7 +59,10 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
              py::return_value_policy::reference_internal)
         .def("get_contact_results", &Class::get_contact_results,
              py::return_value_policy::reference_internal)
+        .def("num_actuated_dofs", &Class::num_actuated_dofs)
+        .def("num_unactuated_dofs", &Class::num_unactuated_dofs)
         .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
-        .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd);
+        .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
+        .def("get_velocity_indices", &Class::get_velocity_indices);
   }
 }
