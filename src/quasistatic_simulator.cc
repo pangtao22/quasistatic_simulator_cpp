@@ -265,9 +265,7 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
     const auto &X_AGb = inspector.GetPoseInFrame(sdp.id_B);
     const auto p_ACa_A = X_AGa * sdp.p_ACa;
     const auto p_BCb_B = X_AGb * sdp.p_BCb;
-
-    // TODO: it is assumed contact exists only between model
-    //  instances, not between bodies within the same model instance.
+    
     const auto model_A_ptr = FindModelForBody(bodyA_idx);
     const auto model_B_ptr = FindModelForBody(bodyB_idx);
 
