@@ -41,3 +41,30 @@ void QpDerivatives::UpdateProblem(
   DzDe_ = sol.topLeftCorner(n_z, n_l);
   DzDb_ = sol.topRightCorner(n_z, n_z);
 }
+
+void QpDerivativesActive::UpdateProblem(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                                        const Eigen::Ref<const Eigen::VectorXd> &b,
+                                        const Eigen::Ref<const Eigen::MatrixXd> &G,
+                                        const Eigen::Ref<const Eigen::MatrixXd> &e,
+                                        const Eigen::Ref<const Eigen::VectorXd> &z_star,
+                                        const Eigen::Ref<const Eigen::VectorXd> &lambda_star,
+                                        double lambda_threshold) {
+  const int n_z = z_star.size();
+  const int n_l = lambda_star.size();
+
+  std::vector<double> nu_star_v;
+  std::vector<int> nu_star_indices;
+
+  // Find active constraints with large lagrange multipliers.
+  for (int i = 0; i < n_l; i++) {
+    double lambda_star_i = lambda_star[i];
+    if (lambda_star_i > lambda_threshold) {
+      nu_star_v.push_back(lambda_star_i);
+      nu_star_indices.push_back(i);
+    }
+  }
+
+  auto nu_star = Eigen::Map<VectorXd>(nu_star_v.data(), nu_star_v.size());
+  const int n_nu = nu_star_v.size();
+
+}
