@@ -31,7 +31,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 add_library(qp_derivatives qp_derivatives.h qp_derivatives.cc)
-target_link_libraries(qp_derivatives drake::drake)
+target_link_libraries(qp_derivatives Eigen3::Eigen spdlog::spdlog)
 
 add_library(quasistatic_simulator quasistatic_simulator.h
         quasistatic_simulator.cc)

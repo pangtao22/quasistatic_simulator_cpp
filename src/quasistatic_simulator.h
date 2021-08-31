@@ -21,6 +21,7 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   bool requires_grad;
   double gradient_lstsq_tolerance{1e-8};
+  bool gradient_from_active_constraints;
 };
 
 class QuasistaticSimulator {
@@ -40,8 +41,11 @@ public:
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
 
   void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict, const double h,
-            const double contact_detection_tolerance, const bool requires_grad);
+            const ModelInstanceToVecMap &tau_ext_dict,
+            const double h,
+            const double contact_detection_tolerance,
+            const bool requires_grad,
+            const bool grad_from_active_constraints);
 
   void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
             const ModelInstanceToVecMap &tau_ext_dict, const double h);
@@ -139,6 +143,7 @@ private:
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
   std::unique_ptr<QpDerivatives> dqp_;
+  std::unique_ptr<QpDerivativesActive> dqp_active_;
   Eigen::MatrixXd Dq_nextDq_;
   Eigen::MatrixXd Dq_nextDqa_cmd_;
 

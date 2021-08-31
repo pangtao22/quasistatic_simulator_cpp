@@ -7,9 +7,6 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(quasistatic_simulator_py, m) {
-  //  py::module::import("pydrake.multibody");
-  //  py::module::import("pydrake.geometry");
-
   {
     using Class = QuasistaticSimParameters;
     py::class_<Class>(m, "QuasistaticSimParametersCpp")
@@ -21,7 +18,9 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
         .def_readwrite("is_quasi_dynamic", &Class::is_quasi_dynamic)
         .def_readwrite("requires_grad", &Class::requires_grad)
         .def_readwrite("gradient_lstsq_tolerance",
-                       &Class::gradient_lstsq_tolerance);
+                       &Class::gradient_lstsq_tolerance)
+        .def_readwrite("gradient_from_active_constraints",
+                       &Class::gradient_from_active_constraints);
   }
 
   {
@@ -39,9 +38,11 @@ PYBIND11_MODULE(quasistatic_simulator_py, m) {
         .def("step",
              py::overload_cast<const ModelInstanceToVecMap &,
                                const ModelInstanceToVecMap &, const double,
-                               const double, const bool>(&Class::Step),
+                               const double, const bool, const bool>
+                               (&Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"),
-             py::arg("contact_detection_tolerance"), py::arg("requires_grad"))
+             py::arg("contact_detection_tolerance"), py::arg("requires_grad"),
+             py::arg("grad_from_active_constraints"))
         .def("step_default",
              py::overload_cast<const ModelInstanceToVecMap &,
                                const ModelInstanceToVecMap &, const double>(

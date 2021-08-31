@@ -126,6 +126,8 @@ QuasistaticSimulator::QuasistaticSimulator(
 
   // QP derivative.
   dqp_ = std::make_unique<QpDerivatives>(sim_params_.gradient_lstsq_tolerance);
+  dqp_active_ = std::make_unique<QpDerivativesActive>(
+      sim_params_.gradient_lstsq_tolerance);
 }
 
 std::vector<int> QuasistaticSimulator::GetVelocityIndicesForModel(
@@ -375,7 +377,8 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const ModelInstanceToVecMap &tau_ext_dict,
                                 const double h,
                                 const double contact_detection_tolerance,
-                                const bool requires_grad) {
+                                const bool requires_grad,
+                                const bool grad_from_active_constraints) {
   auto q_dict = GetMbpPositions();
   const int n_v = plant_->num_velocities();
   const int n_d = sim_params_.nd_per_contact;
@@ -426,10 +429,19 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
   if (not requires_grad) {
     return;
   }
+  QpDerivativesBase * dqp{nullptr};
+  if (grad_from_active_constraints) {
+    // TODO: the threshold for lagrange multipliers is hard-coded to 0.1N * h.
+    dqp_active_->UpdateProblem(
+        Q, -tau_h, -J, e, v_star, beta_star, 0.1 * h);
+    dqp = dqp_active_.get();
+  } else {
+    dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
+    dqp = dqp_.get();
+  }
 
-  dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
-  const auto& DvDb = dqp_->get_DzDb();
-  const auto& DvDe = dqp_->get_DzDe();
+  const auto& DvDb = dqp->get_DzDb();
+  const auto& DvDe = dqp->get_DzDe();
 
   MatrixXd Dphi_constraints_Dq(n_f, n_v);
   int i_start = 0;
@@ -467,7 +479,8 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const ModelInstanceToVecMap &tau_ext_dict,
                                 const double h) {
   Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
-       sim_params_.requires_grad);
+       sim_params_.requires_grad,
+       sim_params_.gradient_from_active_constraints);
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
