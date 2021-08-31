@@ -37,6 +37,7 @@ int main() {
   sim_params.contact_detection_tolerance = 1.0;
   sim_params.is_quasi_dynamic = true;
   sim_params.requires_grad = true;
+  sim_params.gradient_from_active_constraints = true;
 
   VectorXd Kp;
   Kp.resize(2);
@@ -64,7 +65,7 @@ int main() {
       q_sim.get_plant(), q0_dict_str);
 
   auto t_start = std::chrono::high_resolution_clock::now();
-  const int n = 1000;
+  const int n = 100;
   for (int i = 0; i < n; i++) {
     q_sim.UpdateMbpPositions(q0_dict);
     ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});

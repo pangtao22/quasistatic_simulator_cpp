@@ -13,7 +13,7 @@ void QpDerivativesBase::check_solution_error(double error) {
   if (not is_solution_valid_) {
     std::stringstream ss;
     ss << "bad gradient. |Ax - b| norm is " << error << ". Tolerance is "
-    << tol_ << ".";
+       << tol_ << ".";
     spdlog::warn(ss.str());
   }
 }
@@ -84,9 +84,10 @@ void QpDerivativesActive::UpdateProblem(
   A_inv.bottomLeftCorner(n_nu, n_z) = B;
 
   const auto I = MatrixXd::Identity(n_z + n_nu, n_z + n_nu);
-  const MatrixXd A = A_inv.bdcSvd().solve(I);
+  const MatrixXd A =
+      A_inv.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(I);
 
-  check_solution_error( (A_inv * A - I).norm());
+  check_solution_error((A_inv * A - I).norm());
 
   DzDb_ = -A.topLeftCorner(n_z, n_z);
 

@@ -21,7 +21,7 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   bool requires_grad;
   double gradient_lstsq_tolerance{1e-8};
-  bool gradient_from_active_constraints;
+  bool gradient_from_active_constraints{false};
 };
 
 class QuasistaticSimulator {
