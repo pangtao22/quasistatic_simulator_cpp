@@ -20,7 +20,7 @@ struct QuasistaticSimParameters {
   double contact_detection_tolerance;
   bool is_quasi_dynamic;
   bool requires_grad;
-  double gradient_lstsq_tolerance{1e-8};
+  double gradient_lstsq_tolerance{1e-3};
   bool gradient_from_active_constraints{false};
 };
 
