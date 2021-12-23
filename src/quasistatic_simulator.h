@@ -14,6 +14,12 @@
 using ModelInstanceToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
 
+/*
+Gradient computation mode of QuasistaticSimulator.
+- kNone: do not compute gradient, just roll out the dynamics.
+- kBOnly: only computes dfdu, where x_next = f(x, u).
+    - kAB: computes both dfdx and dfdu.
+*/
 enum class GradientMode { kNone, kBOnly, kAB };
 
 struct QuasistaticSimParameters {

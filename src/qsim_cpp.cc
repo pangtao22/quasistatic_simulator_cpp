@@ -8,7 +8,7 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(qsim_cpp, m) {
   {
-    py::enum_<GradientMode>(m, "GradientModeCpp")
+    py::enum_<GradientMode>(m, "GradientMode")
         .value("kNone", GradientMode::kNone)
         .value("kBOnly", GradientMode::kBOnly)
         .value("kAB", GradientMode::kAB);
