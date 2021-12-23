@@ -12,10 +12,10 @@ using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
-using std::string;
-using std::vector;
 using std::cout;
 using std::endl;
+using std::string;
+using std::vector;
 
 void CreateMbp(
     drake::systems::DiagramBuilder<double> *builder,
@@ -106,12 +106,12 @@ QuasistaticSimulator::QuasistaticSimulator(
   }
 
   n_v_a_ = 0;
-  for (const auto& model: models_actuated_) {
+  for (const auto &model : models_actuated_) {
     n_v_a_ += plant_->num_velocities(model);
   }
 
   n_v_u_ = 0;
-  for (const auto& model: models_unactuated_) {
+  for (const auto &model : models_unactuated_) {
     n_v_u_ += plant_->num_velocities(model);
   }
 
@@ -267,7 +267,7 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
     const auto &X_AGb = inspector.GetPoseInFrame(sdp.id_B);
     const auto p_ACa_A = X_AGa * sdp.p_ACa;
     const auto p_BCb_B = X_AGb * sdp.p_BCb;
-    
+
     const auto model_A_ptr = FindModelForBody(bodyA_idx);
     const auto model_B_ptr = FindModelForBody(bodyB_idx);
 
@@ -377,7 +377,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const ModelInstanceToVecMap &tau_ext_dict,
                                 const double h,
                                 const double contact_detection_tolerance,
-                                const bool requires_grad,
+                                const GradientMode gradient_mode,
                                 const bool grad_from_active_constraints) {
   auto q_dict = GetMbpPositions();
   const int n_v = plant_->num_velocities();
@@ -426,23 +426,69 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
   UpdateMbpPositions(q_dict);
 
   // gradients.
-  if (not requires_grad) {
+  if (gradient_mode == GradientMode::kNone) {
     return;
-  }
-  QpDerivativesBase * dqp{nullptr};
-  if (grad_from_active_constraints) {
-    // TODO: the threshold for lagrange multipliers is hard-coded to 0.1N * h.
-    dqp_active_->UpdateProblem(
-        Q, -tau_h, -J, e, v_star, beta_star, 0.1 * h);
-    dqp = dqp_active_.get();
   } else {
-    dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
-    dqp = dqp_.get();
+    QpDerivativesBase *dqp{nullptr};
+    if (grad_from_active_constraints) {
+      // TODO: the threshold for lagrange multipliers is hard-coded to 0.1N * h.
+      dqp_active_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star, 0.1 * h);
+      dqp = dqp_active_.get();
+    } else {
+      dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
+      dqp = dqp_.get();
+    }
+
+    if (gradient_mode == GradientMode::kAB) {
+      const auto &Dv_nextDe = dqp->get_DzDe();
+      const auto &Dv_nextDb = dqp->get_DzDb();
+      Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_c, n_d, n_f);
+      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h);
+    } else if (gradient_mode == GradientMode::kBOnly) {
+      const auto &Dv_nextDb = dqp->get_DzDb();
+      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h);
+    } else {
+      throw std::runtime_error("Invalid gradient_mode.");
+    }
+  }
+}
+
+void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
+                                const ModelInstanceToVecMap &tau_ext_dict,
+                                const double h) {
+  Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
+       sim_params_.gradient_mode, sim_params_.gradient_from_active_constraints);
+}
+
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h) const {
+  const int n_v = plant_->num_velocities();
+  MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v, n_v_a_);
+  int j_start = 0;
+  for (const auto &model : models_actuated_) {
+    const auto &idx_v = velocity_indices_.at(model);
+    const int n_v_i = idx_v.size();
+    const auto &Kq_i = robot_stiffness_.at(model);
+
+    for (int k = 0; k < n_v_i; k++) {
+      int i = idx_v[k];
+      int j = j_start + k;
+      DbDqa_cmd(i, j) = -h * Kq_i[k];
+    }
+
+    j_start += n_v_i;
   }
 
-  const auto& DvDb = dqp->get_DzDb();
-  const auto& DvDe = dqp->get_DzDe();
+  return h * Dv_nextDb * DbDqa_cmd;
+}
 
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe, const double h,
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_c, const int n_d,
+    const int n_f) const {
+  const int n_v = plant_->num_velocities();
+  /*----------------------------------------------------------------*/
   MatrixXd Dphi_constraints_Dq(n_f, n_v);
   int i_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -452,35 +498,27 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
     i_start += n_d;
   }
 
+  /*----------------------------------------------------------------*/
   MatrixXd DbDq = MatrixXd::Zero(n_v, n_v);
-  MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v, n_v_a_);
   int j_start = 0;
-  for (const auto& model : models_actuated_) {
-    const auto& idx_v = velocity_indices_[model];
+  for (const auto &model : models_actuated_) {
+    const auto &idx_v = velocity_indices_.at(model);
     const int n_v_i = idx_v.size();
-    const auto& Kq_i = robot_stiffness_[model];
+    const auto &Kq_i = robot_stiffness_.at(model);
 
     for (int k = 0; k < n_v_i; k++) {
       int i = idx_v[k];
       int j = j_start + k;
-      DbDqa_cmd(i, j) = -h * Kq_i[k];
       DbDq(i, i) = h * Kq_i[k];
     }
 
     j_start += n_v_i;
   }
 
-  const MatrixXd Dv_nextDq = DvDb * DbDq + DvDe * Dphi_constraints_Dq / h;
-  Dq_nextDq_ = MatrixXd::Identity(n_v, n_v) + h * Dv_nextDq;
-  Dq_nextDqa_cmd_ = h * DvDb * DbDqa_cmd;
-}
-
-void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-                                const ModelInstanceToVecMap &tau_ext_dict,
-                                const double h) {
-  Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
-       sim_params_.requires_grad,
-       sim_params_.gradient_from_active_constraints);
+  /*----------------------------------------------------------------*/
+  const MatrixXd Dv_nextDq =
+      Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+  return MatrixXd::Identity(n_v, n_v) + h * Dv_nextDq;
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -510,7 +548,7 @@ void QuasistaticSimulator::CalcGravityForUnactautedModels(
 
 ModelInstanceToVecMap QuasistaticSimulator::CalcTauExt(
     const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
-    &easf_list) const {
+        &easf_list) const {
   ModelInstanceToVecMap tau_ext;
   GetGeneralizedForceFromExternalSpatialForce(easf_list, &tau_ext);
   CalcGravityForUnactautedModels(&tau_ext);

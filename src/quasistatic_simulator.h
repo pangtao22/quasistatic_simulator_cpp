@@ -14,14 +14,16 @@
 using ModelInstanceToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
 
+enum class GradientMode { kNone, kBOnly, kAB };
+
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
   size_t nd_per_contact;
   double contact_detection_tolerance;
   bool is_quasi_dynamic;
-  bool requires_grad;
-  double gradient_lstsq_tolerance{1e-3};
+  GradientMode gradient_mode;
   bool gradient_from_active_constraints{false};
+  double gradient_lstsq_tolerance{1e-3};
 };
 
 class QuasistaticSimulator {
@@ -41,10 +43,9 @@ public:
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
 
   void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict,
-            const double h,
+            const ModelInstanceToVecMap &tau_ext_dict, const double h,
             const double contact_detection_tolerance,
-            const bool requires_grad,
+            const GradientMode gradient_mode,
             const bool grad_from_active_constraints);
 
   void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
@@ -93,14 +94,16 @@ public:
     return contact_results_;
   }
 
-  int num_actuated_dofs() const { return n_v_a_;};
-  int num_unactuated_dofs() const { return n_v_u_;};
+  int num_actuated_dofs() const { return n_v_a_; };
+  int num_unactuated_dofs() const { return n_v_u_; };
 
-  Eigen::MatrixXd get_Dq_nextDq() const {return Dq_nextDq_;};
-  Eigen::MatrixXd get_Dq_nextDqa_cmd() const {return Dq_nextDqa_cmd_;};
+  Eigen::MatrixXd get_Dq_nextDq() const { return Dq_nextDq_; };
+  Eigen::MatrixXd get_Dq_nextDqa_cmd() const { return Dq_nextDqa_cmd_; };
 
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
-    get_velocity_indices() const { return velocity_indices_; };
+  get_velocity_indices() const {
+    return velocity_indices_;
+  };
 
 private:
   [[nodiscard]] std::vector<int>
@@ -134,6 +137,14 @@ private:
                     const ModelInstanceToVecMap &tau_ext_dict, const double h,
                     Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr) const;
 
+  Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                           const double h) const;
+  Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                           const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+                           const double h,
+                           const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                           const int n_c, const int n_d, const int n_f) const;
+
   const QuasistaticSimParameters sim_params_;
 
   // QP solver.
@@ -162,8 +173,8 @@ private:
   drake::multibody::ContactResults<double> contact_results_;
 
   // MBP introspection.
-  int n_v_a_{0};  // number of actuated DOFs.
-  int n_v_u_{0};  // number of un-actuated DOFs.
+  int n_v_a_{0}; // number of actuated DOFs.
+  int n_v_u_{0}; // number of un-actuated DOFs.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
