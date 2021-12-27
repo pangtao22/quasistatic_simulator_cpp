@@ -1,6 +1,7 @@
 #include <set>
 #include <vector>
 
+#include "drake/common/drake_path.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/parsing/process_model_directives.h"
 #include "drake/solvers/mathematical_program.h"
@@ -31,10 +32,13 @@ void CreateMbp(
   std::tie(*plant, *scene_graph) =
       drake::multibody::AddMultibodyPlantSceneGraph(builder, 1e-3);
   auto parser = drake::multibody::Parser(*plant, *scene_graph);
-  // TODO: add package path.
+  // TODO: add package paths from yaml file.
   parser.package_map().Add(
       "quasistatic_simulator",
       "/Users/pangtao/PycharmProjects/quasistatic_simulator/models");
+  parser.package_map().Add(
+      "drake_manipulation_models",
+      drake::MaybeGetDrakePath().value() + "/manipulation/models");
   drake::multibody::parsing::ProcessModelDirectives(
       drake::multibody::parsing::LoadModelDirectives(model_directive_path),
       *plant, nullptr, &parser);

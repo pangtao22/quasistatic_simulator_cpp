@@ -181,6 +181,8 @@ private:
   // MBP introspection.
   int n_v_a_{0}; // number of actuated DOFs.
   int n_v_u_{0}; // number of un-actuated DOFs.
+  int n_v_{0}; // total number of velocities.
+  int n_q_{0}; // total number of positions.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
