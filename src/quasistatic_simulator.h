@@ -62,7 +62,7 @@ public:
           &easf,
       ModelInstanceToVecMap *tau_ext) const;
 
-  void CalcGravityForUnactautedModels(ModelInstanceToVecMap *tau_ext) const;
+  void CalcGravityForUnactuatedModels(ModelInstanceToVecMap *tau_ext) const;
 
   ModelInstanceToVecMap CalcTauExt(
       const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
@@ -98,6 +98,10 @@ public:
   const drake::multibody::ContactResults<double> &get_contact_results() const {
     // TODO: return non-empty contact results.
     return contact_results_;
+  }
+
+  void update_sim_params(const QuasistaticSimParameters& new_params) {
+    sim_params_ = new_params;
   }
 
   int num_actuated_dofs() const { return n_v_a_; };
@@ -142,6 +146,8 @@ private:
                     const ModelInstanceToVecMap &q_a_cmd_dict,
                     const ModelInstanceToVecMap &tau_ext_dict, const double h,
                     Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr) const;
+  std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
+  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd>& v) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const double h) const;
@@ -151,7 +157,7 @@ private:
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_c, const int n_d, const int n_f) const;
 
-  const QuasistaticSimParameters sim_params_;
+  QuasistaticSimParameters sim_params_;
 
   // QP solver.
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
@@ -186,6 +192,8 @@ private:
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
+  std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
+    is_model_planar_;
   ModelInstanceToVecMap robot_stiffness_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;

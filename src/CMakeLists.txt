@@ -42,3 +42,6 @@ target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
 target_link_libraries(run_planar_hand_ball quasistatic_simulator)
+
+add_executable(run_3link_arm_3d run_3link_arm_3d.cc)
+target_link_libraries(run_3link_arm_3d quasistatic_simulator)

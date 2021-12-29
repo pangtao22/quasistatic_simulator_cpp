@@ -32,7 +32,7 @@ void CreateMbp(
   std::tie(*plant, *scene_graph) =
       drake::multibody::AddMultibodyPlantSceneGraph(builder, 1e-3);
   auto parser = drake::multibody::Parser(*plant, *scene_graph);
-  // TODO: add package paths from yaml file.
+  // TODO: add package paths from yaml file?
   parser.package_map().Add(
       "quasistatic_simulator",
       "/Users/pangtao/PycharmProjects/quasistatic_simulator/models");
@@ -63,14 +63,20 @@ void CreateMbp(
 Eigen::Matrix3Xd CalcTangentVectors(const Vector3d &normal, const size_t nd) {
   Eigen::Vector3d n = normal.normalized();
   Eigen::Vector4d n4(n.x(), n.y(), n.z(), 0);
-  Eigen::Matrix3Xd tangents(3, 2);
+  Eigen::Matrix3Xd tangents(3, nd);
   if (nd == 2) {
     // Makes sure that dC is in the yz plane.
     Eigen::Vector4d n_x4(1, 0, 0, 0);
     tangents.col(0) = n_x4.cross3(n4).head(3);
     tangents.col(1) = -tangents.col(0);
   } else {
-    throw std::runtime_error("not implemented yet!");
+    const auto R = drake::math::RotationMatrixd::MakeFromOneUnitVector(n, 2);
+
+    for (int i = 0; i < nd; i++) {
+      const double theta = 2 * M_PI / nd * i;
+      tangents.col(i) << cos(theta), sin(theta), 0;
+    }
+    tangents = R * tangents;
   }
 
   return tangents;
@@ -93,9 +99,6 @@ QuasistaticSimulator::QuasistaticSimulator(
   models_all_.insert(models_actuated_.begin(), models_actuated_.end());
   diagram_ = builder.Build();
 
-  // TODO: 2D models only.
-  DRAKE_THROW_UNLESS(plant_->num_velocities() == plant_->num_positions());
-
   // Contexts.
   context_ = diagram_->CreateDefaultContext();
   context_plant_ =
@@ -109,6 +112,9 @@ QuasistaticSimulator::QuasistaticSimulator(
     bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
 
+  n_q_ = plant_->num_positions();
+  n_v_ = plant_->num_velocities();
+
   n_v_a_ = 0;
   for (const auto &model : models_actuated_) {
     n_v_a_ += plant_->num_velocities(model);
@@ -117,6 +123,30 @@ QuasistaticSimulator::QuasistaticSimulator(
   n_v_u_ = 0;
   for (const auto &model : models_unactuated_) {
     n_v_u_ += plant_->num_velocities(model);
+  }
+
+  // Find planar model instances.
+  /* Features of a 3D un-actuated model instance:
+   *
+   * 1. The model instance has only 1 rigid body.
+   * 2. The model instance has a floating base.
+   * 3. The model instance has 6 velocities and 7 positions.
+   */
+  for (const auto& model : models_unactuated_) {
+    const auto n_v = plant_->num_velocities(model);
+    const auto n_q = plant_->num_positions(model);
+    if (n_v == 6 and n_q == 7) {
+      const auto body_indices = plant_->GetBodyIndices(model);
+      DRAKE_THROW_UNLESS(body_indices.size() == 1);
+      DRAKE_THROW_UNLESS(plant_->get_body(body_indices.at(0)).is_floating());
+      is_model_planar_[model] = false;
+    } else {
+      is_model_planar_[model] = true;
+    }
+  }
+
+  for (const auto& model : models_actuated_) {
+    is_model_planar_[model] = true;
   }
 
   // friction coefficients.
@@ -384,8 +414,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const GradientMode gradient_mode,
                                 const bool grad_from_active_constraints) {
   auto q_dict = GetMbpPositions();
-  const int n_v = plant_->num_velocities();
-  const int n_d = sim_params_.nd_per_contact;
+  const auto n_d = sim_params_.nd_per_contact;
 
   // Compute contact jacobians.
   int n_c, n_f;
@@ -401,7 +430,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
 
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
-  auto v = prog.NewContinuousVariables(n_v, "v");
+  auto v = prog.NewContinuousVariables(n_v_, "v");
   prog.AddQuadraticCost(Q, -tau_h, v);
 
   const VectorXd e = phi_constraints / h;
@@ -416,13 +445,41 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
   const VectorXd beta_star = -mp_result_.GetDualSolution(constraints);
 
   // Update q_dict.
+  const auto v_dict = GetVdictFromV(v_star);
+  std::unordered_map<ModelInstanceIndex, VectorXd> dq_dict;
+  for (const auto &model : models_all_) {
+    const auto &idx_v = velocity_indices_.at(model);
+    const auto n_q_i = plant_->num_positions(model);
+
+    if (is_model_planar_[model]) {
+      dq_dict[model] = v_dict.at(model) * h;
+    } else {
+      // Positions of the model contains a quaternion. Conversion from
+      // angular velocities to quaternion dot is necessary.
+      const auto& q_u = q_dict[model];
+      const Eigen::Vector4d Q(q_u.head(4));
+      MatrixXd E(3, 4);
+      E.row(0) << Q[1], Q[0], -Q[3], Q[2];
+      E.row(1) << -Q[2], Q[3], Q[0], -Q[1];
+      E.row(2) << -Q[3], -Q[2], Q[1], Q[0];
+
+      VectorXd dq_u(7);
+      const auto& v_u = v_dict.at(model);
+      dq_u.head(4) = 0.5 * E.transpose() * v_u.head(3) * h;
+      dq_u.tail(3) = v_u.tail(3) * h;
+      
+      dq_dict[model] = dq_u;
+    }
+  }
+
   for (const auto &model : models_all_) {
     const auto &idx_v = velocity_indices_.at(model);
     auto &q_model = q_dict[model];
+    q_model += dq_dict[model];
 
-    for (int i = 0; i < idx_v.size(); i++) {
-      int idx = idx_v[i];
-      q_model[i] += v_star[idx] * h;
+    if (not is_model_planar_[model]) {
+      // Normalize quaternion.
+      q_model.head(4) /= q_model.head(4).norm();
     }
   }
 
@@ -457,6 +514,24 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
   }
 }
 
+std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
+QuasistaticSimulator::GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd>&
+    v) const {
+  DRAKE_THROW_UNLESS(v.size() == n_v_);
+  std::unordered_map<ModelInstanceIndex, VectorXd> v_dict;
+
+  for (const auto& model : models_all_) {
+    const auto& idx_v = velocity_indices_.at(model);
+    auto v_model = VectorXd(idx_v.size());
+
+    for (int i = 0; i < idx_v.size(); i++) {
+      v_model[i] = v[idx_v[i]];
+    }
+    v_dict[model] = v_model;
+  }
+  return v_dict;
+}
+
 void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
                                 const ModelInstanceToVecMap &tau_ext_dict,
                                 const double h) {
@@ -466,8 +541,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h) const {
-  const int n_v = plant_->num_velocities();
-  MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v, n_v_a_);
+  MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v_, n_v_a_);
   int j_start = 0;
   for (const auto &model : models_actuated_) {
     const auto &idx_v = velocity_indices_.at(model);
@@ -491,9 +565,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe, const double h,
     const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_c, const int n_d,
     const int n_f) const {
-  const int n_v = plant_->num_velocities();
   /*----------------------------------------------------------------*/
-  MatrixXd Dphi_constraints_Dq(n_f, n_v);
+  MatrixXd Dphi_constraints_Dq(n_f, n_v_);
   int i_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
     for (int i = i_start; i < i_start + n_d; i++) {
@@ -503,7 +576,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   }
 
   /*----------------------------------------------------------------*/
-  MatrixXd DbDq = MatrixXd::Zero(n_v, n_v);
+  MatrixXd DbDq = MatrixXd::Zero(n_v_, n_v_);
   int j_start = 0;
   for (const auto &model : models_actuated_) {
     const auto &idx_v = velocity_indices_.at(model);
@@ -522,7 +595,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   /*----------------------------------------------------------------*/
   const MatrixXd Dv_nextDq =
       Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
-  return MatrixXd::Identity(n_v, n_v) + h * Dv_nextDq;
+  return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -535,7 +608,7 @@ void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
   }
 }
 
-void QuasistaticSimulator::CalcGravityForUnactautedModels(
+void QuasistaticSimulator::CalcGravityForUnactuatedModels(
     ModelInstanceToVecMap *tau_ext) const {
   const auto gravity_all =
       plant_->CalcGravityGeneralizedForces(*context_plant_);
@@ -555,6 +628,6 @@ ModelInstanceToVecMap QuasistaticSimulator::CalcTauExt(
         &easf_list) const {
   ModelInstanceToVecMap tau_ext;
   GetGeneralizedForceFromExternalSpatialForce(easf_list, &tau_ext);
-  CalcGravityForUnactautedModels(&tau_ext);
+  CalcGravityForUnactuatedModels(&tau_ext);
   return tau_ext;
 }

@@ -36,7 +36,6 @@ int main() {
   sim_params.nd_per_contact = 2;
   sim_params.contact_detection_tolerance = 1.0;
   sim_params.is_quasi_dynamic = true;
-  sim_params.requires_grad = true;
   sim_params.gradient_from_active_constraints = true;
 
   VectorXd Kp;
@@ -64,23 +63,28 @@ int main() {
   auto q0_dict = CreateMapKeyedByModelInstanceIndex(
       q_sim.get_plant(), q0_dict_str);
 
-  auto t_start = std::chrono::high_resolution_clock::now();
-  const int n = 100;
-  for (int i = 0; i < n; i++) {
-    q_sim.UpdateMbpPositions(q0_dict);
-    ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
-    q_sim.Step(q0_dict, tau_ext_dict, 0.1);
-    auto q_next_dict = q_sim.GetMbpPositions();
+  for (int gradient_mode = 0; gradient_mode < 3; gradient_mode++) {
+    sim_params.gradient_mode = GradientMode(gradient_mode);
+    q_sim.update_sim_params(sim_params);
+    cout << "--------------- gradient mode " << gradient_mode << " ---------\n";
+    auto t_start = std::chrono::high_resolution_clock::now();
+    const int n = 100;
+    for (int i = 0; i < n; i++) {
+      q_sim.UpdateMbpPositions(q0_dict);
+      ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
+      q_sim.Step(q0_dict, tau_ext_dict, 0.1);
+      auto q_next_dict = q_sim.GetMbpPositions();
+    }
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+    cout << "wall time microseconds per dynamics: " <<
+         std::chrono::duration_cast<std::chrono::microseconds>(t_end-t_start)
+             .count() / n
+         << endl;
+
+    cout << "Dq_nextDq\n" << q_sim.get_Dq_nextDq() << endl;
+    cout << "Dq_nextDqa_cmd\n" << q_sim.get_Dq_nextDqa_cmd() << endl;
   }
-
-  auto t_end = std::chrono::high_resolution_clock::now();
-  cout << "wall time microseconds per dynamics: " <<
-    std::chrono::duration_cast<std::chrono::microseconds>(t_end-t_start)
-        .count() / n
-    << endl;
-
-  cout << "Dq_nextDq\n" << q_sim.get_Dq_nextDq() << endl;
-  cout << "Dq_nextDqa_cmd\n" << q_sim.get_Dq_nextDqa_cmd() << endl;
 
 //  for(const auto& [model, q_i] : q_next_dict) {
 //    cout << model << " " << q_i.transpose() << endl;
