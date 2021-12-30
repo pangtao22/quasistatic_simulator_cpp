@@ -1,5 +1,3 @@
-#include <chrono>
-
 #include "quasistatic_simulator.h"
 
 using Eigen::Vector2d;
@@ -34,8 +32,8 @@ CreateMapKeyedByModelInstanceIndex(
 int main() {
   QuasistaticSimParameters sim_params;
   sim_params.gravity = Vector3d(0, 0, -10);
-  sim_params.nd_per_contact = 2;
-  sim_params.contact_detection_tolerance = 1.0;
+  sim_params.nd_per_contact = 4;
+  sim_params.contact_detection_tolerance = INFINITY;
   sim_params.is_quasi_dynamic = true;
   sim_params.gradient_from_active_constraints = true;
 

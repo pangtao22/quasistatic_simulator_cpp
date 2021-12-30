@@ -27,8 +27,8 @@ struct QuasistaticSimParameters {
   size_t nd_per_contact;
   double contact_detection_tolerance;
   bool is_quasi_dynamic;
-  GradientMode gradient_mode;
-  bool gradient_from_active_constraints{false};
+  GradientMode gradient_mode{GradientMode::kNone};
+  bool gradient_from_active_constraints{true};
   double gradient_lstsq_tolerance{1e-3};
 };
 
@@ -193,7 +193,7 @@ private:
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
-    is_model_planar_;
+    is_3d_floating_;
   ModelInstanceToVecMap robot_stiffness_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;

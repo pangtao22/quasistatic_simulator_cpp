@@ -32,13 +32,18 @@ void CreateMbp(
   std::tie(*plant, *scene_graph) =
       drake::multibody::AddMultibodyPlantSceneGraph(builder, 1e-3);
   auto parser = drake::multibody::Parser(*plant, *scene_graph);
-  // TODO: add package paths from yaml file?
+  // TODO: add package paths from yaml file? Hard-coding paths is clearly not
+  //  the solution...
   parser.package_map().Add(
       "quasistatic_simulator",
       "/Users/pangtao/PycharmProjects/quasistatic_simulator/models");
   parser.package_map().Add(
       "drake_manipulation_models",
       drake::MaybeGetDrakePath().value() + "/manipulation/models");
+  parser.package_map().Add(
+      "iiwa_controller",
+      "/Users/pangtao/PycharmProjects/robotics_utilities/models");
+
   drake::multibody::parsing::ProcessModelDirectives(
       drake::multibody::parsing::LoadModelDirectives(model_directive_path),
       *plant, nullptr, &parser);
@@ -139,14 +144,14 @@ QuasistaticSimulator::QuasistaticSimulator(
       const auto body_indices = plant_->GetBodyIndices(model);
       DRAKE_THROW_UNLESS(body_indices.size() == 1);
       DRAKE_THROW_UNLESS(plant_->get_body(body_indices.at(0)).is_floating());
-      is_model_planar_[model] = false;
+      is_3d_floating_[model] = true;
     } else {
-      is_model_planar_[model] = true;
+      is_3d_floating_[model] = false;
     }
   }
 
   for (const auto& model : models_actuated_) {
-    is_model_planar_[model] = true;
+    is_3d_floating_[model] = false;
   }
 
   // friction coefficients.
@@ -451,15 +456,13 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
     const auto &idx_v = velocity_indices_.at(model);
     const auto n_q_i = plant_->num_positions(model);
 
-    if (is_model_planar_[model]) {
-      dq_dict[model] = v_dict.at(model) * h;
-    } else {
+    if (is_3d_floating_[model]) {
       // Positions of the model contains a quaternion. Conversion from
       // angular velocities to quaternion dot is necessary.
       const auto& q_u = q_dict[model];
       const Eigen::Vector4d Q(q_u.head(4));
       MatrixXd E(3, 4);
-      E.row(0) << Q[1], Q[0], -Q[3], Q[2];
+      E.row(0) << -Q[1], Q[0], -Q[3], Q[2];
       E.row(1) << -Q[2], Q[3], Q[0], -Q[1];
       E.row(2) << -Q[3], -Q[2], Q[1], Q[0];
 
@@ -467,19 +470,20 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
       const auto& v_u = v_dict.at(model);
       dq_u.head(4) = 0.5 * E.transpose() * v_u.head(3) * h;
       dq_u.tail(3) = v_u.tail(3) * h;
-      
+
       dq_dict[model] = dq_u;
+    } else {
+      dq_dict[model] = v_dict.at(model) * h;
     }
   }
 
   for (const auto &model : models_all_) {
-    const auto &idx_v = velocity_indices_.at(model);
     auto &q_model = q_dict[model];
     q_model += dq_dict[model];
 
-    if (not is_model_planar_[model]) {
+    if (is_3d_floating_[model]) {
       // Normalize quaternion.
-      q_model.head(4) /= q_model.head(4).norm();
+      q_model.head(4).normalize();
     }
   }
 
