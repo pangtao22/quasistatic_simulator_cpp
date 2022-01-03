@@ -8,6 +8,7 @@
 #include "drake/systems/framework/diagram_builder.h"
 
 #include "quasistatic_simulator.h"
+#include "get_model_paths.h"
 
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
@@ -36,13 +37,13 @@ void CreateMbp(
   //  the solution...
   parser.package_map().Add(
       "quasistatic_simulator",
-      "/Users/pangtao/PycharmProjects/quasistatic_simulator/models");
+      GetQsimModelsPath());
   parser.package_map().Add(
       "drake_manipulation_models",
       drake::MaybeGetDrakePath().value() + "/manipulation/models");
   parser.package_map().Add(
       "iiwa_controller",
-      "/Users/pangtao/PycharmProjects/robotics_utilities/models");
+      GetRoboticsUtilitiesModelsPath());
 
   drake::multibody::parsing::ProcessModelDirectives(
       drake::multibody::parsing::LoadModelDirectives(model_directive_path),

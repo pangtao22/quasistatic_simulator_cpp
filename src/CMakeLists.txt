@@ -30,12 +30,15 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+add_library(get_model_paths get_model_paths.h get_model_paths.cc)
+
 add_library(qp_derivatives qp_derivatives.h qp_derivatives.cc)
 target_link_libraries(qp_derivatives drake::drake)
 
 add_library(quasistatic_simulator quasistatic_simulator.h
         quasistatic_simulator.cc)
-target_link_libraries(quasistatic_simulator qp_derivatives drake::drake)
+target_link_libraries(quasistatic_simulator qp_derivatives drake::drake
+        get_model_paths)
 
 pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
 target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator)

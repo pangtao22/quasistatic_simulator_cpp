@@ -1,5 +1,7 @@
 #include <chrono>
+#include <filesystem>
 
+#include "get_model_paths.h"
 #include "quasistatic_simulator.h"
 
 using Eigen::Vector2d;
