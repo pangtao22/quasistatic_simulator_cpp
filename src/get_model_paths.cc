@@ -3,12 +3,9 @@
 using std::filesystem::current_path;
 using std::filesystem::path;
 
-/*
- * It is assumed that this executable is located at
- *   ${HOME}/ClionProjects/quasistatic_simulator_cpp/cmake-build-release/src
- */
 std::filesystem::path GetPyPackagesPath() {
-  return current_path() / path("../../../..") / path("PycharmProjects");
+  auto file_path = path(__FILE__);
+  return file_path.parent_path() / path("../../..") / path("PycharmProjects");
 }
 
 std::filesystem::path GetQsimModelsPath() {
