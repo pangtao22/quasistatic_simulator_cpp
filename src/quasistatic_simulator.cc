@@ -513,6 +513,7 @@ void QuasistaticSimulator::Step(const ModelInstanceToVecMap &q_a_cmd_dict,
     } else if (gradient_mode == GradientMode::kBOnly) {
       const auto &Dv_nextDb = dqp->get_DzDb();
       Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h);
+      Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     } else {
       throw std::runtime_error("Invalid gradient_mode.");
     }
