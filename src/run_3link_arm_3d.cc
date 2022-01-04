@@ -1,3 +1,4 @@
+#include "get_model_paths.h"
 #include "quasistatic_simulator.h"
 
 using Eigen::Vector2d;
@@ -9,11 +10,10 @@ using drake::multibody::ModelInstanceIndex;
 using std::cout;
 using std::endl;
 
-const string kObjectSdfPath =
-    "/Users/pangtao/PycharmProjects/quasistatic_simulator/models/box_1m.sdf";
+const string kObjectSdfPath = GetQsimModelsPath() / "box_1m.sdf";
 
 const string kModelDirectivePath =
-    "/Users/pangtao/PycharmProjects/quasistatic_simulator/models/three_link_arm_and_ground.yml";
+    GetQsimModelsPath() / "three_link_arm_and_ground.yml";
 
 
 std::unordered_map<ModelInstanceIndex, VectorXd>
