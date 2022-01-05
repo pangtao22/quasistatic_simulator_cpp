@@ -458,14 +458,10 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       // angular velocities to quaternion dot is necessary.
       const auto &q_u = q_dict[model];
       const Eigen::Vector4d Q(q_u.head(4));
-      MatrixXd E(3, 4);
-      E.row(0) << -Q[1], Q[0], -Q[3], Q[2];
-      E.row(1) << -Q[2], Q[3], Q[0], -Q[1];
-      E.row(2) << -Q[3], -Q[2], Q[1], Q[0];
 
       VectorXd dq_u(7);
       const auto &v_u = v_dict.at(model);
-      dq_u.head(4) = 0.5 * E.transpose() * v_u.head(3) * h;
+      dq_u.head(4) = GetE(Q) * v_u.head(3) * h;
       dq_u.tail(3) = v_u.tail(3) * h;
 
       dq_dict[model] = dq_u;
@@ -487,7 +483,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
 
-  // gradients.
+  // Gradients.
   if (gradient_mode == GradientMode::kNone) {
     return;
   } else {
@@ -505,10 +501,10 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       const auto &Dv_nextDe = dqp->get_DzDe();
       const auto &Dv_nextDb = dqp->get_DzDb();
       Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_c, n_d, n_f);
-      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h);
+      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
     } else if (gradient_mode == GradientMode::kBOnly) {
       const auto &Dv_nextDb = dqp->get_DzDb();
-      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h);
+      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
       Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     } else {
       throw std::runtime_error("Invalid gradient_mode.");
@@ -542,7 +538,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
-    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h) const {
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h,
+    const ModelInstanceIndexToVecMap& q_dict) const {
   MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v_, n_v_a_);
   int j_start = 0;
   for (const auto &model : models_actuated_) {
@@ -557,6 +554,18 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     }
 
     j_start += n_v_i;
+  }
+
+  const MatrixXd Dv_nextDqa_cmd = Dv_nextDb @ DbDqa_cmd;
+
+  if (n_v_ == n_q_) {
+    return h * Dv_nextDqa_cmd;
+  } else {
+    MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
+    for (const auto& model : models_all_) {
+      const auto& idx_v_model = velocity_indices_.at(model);
+      const auto& idx_q_model = position_indices_.at(model);
+    }
   }
 
   return h * Dv_nextDb * DbDqa_cmd;
@@ -641,4 +650,15 @@ QuasistaticSimulator::GetModelInstanceNameToIndexMap() const {
     name_to_index_map[plant_->GetModelInstanceName(model)] = model;
   }
   return name_to_index_map;
+}
+
+Eigen::Matrix<double, 4, 3>
+QuasistaticSimulator::GetE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
+  Eigen::Matrix<double, 4, 3> E;
+  E.row(0) << -Q[1], -Q[2], -Q[3];
+  E.row(1) << Q[0], Q[3], -Q[2];
+  E.row(2) << -Q[3], Q[0], Q[1];
+  E.row(3) << Q[2], -Q[1], Q[0];
+  E *= 0.5;
+  return E;
 }

@@ -64,7 +64,8 @@ public:
           &easf,
       ModelInstanceIndexToVecMap *tau_ext) const;
 
-  void CalcGravityForUnactuatedModels(ModelInstanceIndexToVecMap *tau_ext) const;
+  void
+  CalcGravityForUnactuatedModels(ModelInstanceIndexToVecMap *tau_ext) const;
 
   ModelInstanceIndexToVecMap CalcTauExt(
       const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
@@ -104,7 +105,7 @@ public:
     return contact_results_;
   }
 
-  void update_sim_params(const QuasistaticSimParameters& new_params) {
+  void update_sim_params(const QuasistaticSimParameters &new_params) {
     sim_params_ = new_params;
   }
 
@@ -148,18 +149,22 @@ private:
 
   void FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                    const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
-                    Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr) const;
+                    const ModelInstanceIndexToVecMap &tau_ext_dict,
+                    const double h, Eigen::MatrixXd *Q_ptr,
+                    Eigen::VectorXd *tau_h_ptr) const;
   std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd>& v) const;
+  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const double h) const;
+                           const double h,
+                           const ModelInstanceIndexToVecMap& q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_c, const int n_d, const int n_f) const;
+  static Eigen::Matrix<double, 4, 3>
+  GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
   QuasistaticSimParameters sim_params_;
 
@@ -191,13 +196,13 @@ private:
   // MBP introspection.
   int n_v_a_{0}; // number of actuated DOFs.
   int n_v_u_{0}; // number of un-actuated DOFs.
-  int n_v_{0}; // total number of velocities.
-  int n_q_{0}; // total number of positions.
+  int n_v_{0};   // total number of velocities.
+  int n_q_{0};   // total number of positions.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
-    is_3d_floating_;
+      is_3d_floating_;
   ModelInstanceIndexToVecMap robot_stiffness_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;
