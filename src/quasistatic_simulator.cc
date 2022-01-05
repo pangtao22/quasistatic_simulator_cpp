@@ -108,15 +108,15 @@ QuasistaticSimulator::QuasistaticSimulator(
   context_sg_ = &(diagram_->GetMutableSubsystemContext(*sg_, context_.get()));
 
   // MBP introspection.
+  n_q_ = plant_->num_positions();
+  n_v_ = plant_->num_velocities();
+
   for (const auto &model : models_all_) {
     velocity_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kV);
     position_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kQ);
     const auto body_indices = plant_->GetBodyIndices(model);
     bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
-
-  n_q_ = plant_->num_positions();
-  n_v_ = plant_->num_velocities();
 
   n_v_a_ = 0;
   for (const auto &model : models_actuated_) {
@@ -578,16 +578,37 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
       const auto& idx_q_model = position_indices_.at(model);
 
       if (is_3d_floating_.at(model)) {
-        const auto& Q_WB = q_dict.at(model).head(4);
-        const auto E = GetE(Q_WB);
+        // If q contains a quaternion.
+        const Eigen::Vector4d & Q_WB = q_dict.at(model).head(4);
+        const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
 
-        Dv_nextDqa_cmd
+        MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_);
+        for (int i = 0; i < 3; i++) {
+          Dv_nextDqa_cmd_model_rot.row(i) = Dv_nextDqa_cmd.row(idx_v_model[i]);
+        }
 
+        MatrixXd E_X_Dv_nextDqa_cmd_model_rot = E * Dv_nextDqa_cmd_model_rot;
+        for(int i = 0; i < 7; i++) {
+          const int i_q = idx_q_model[i];
+          if (i < 4) {
+            // Rotation.
+            Dq_dot_nextDqa_cmd.row(i_q) = E_X_Dv_nextDqa_cmd_model_rot.row(i);
+          } else {
+            // Translation.
+            const int i_v = idx_v_model[i - 1];
+            Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
+          }
+        }
+      } else {
+        for (int i = 0; i < idx_v_model.size(); i++) {
+          const int i_q = idx_q_model[i];
+          const int i_v = idx_v_model[i];
+          Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
+        }
       }
     }
+    return h * Dq_dot_nextDqa_cmd;
   }
-
-  return h * Dv_nextDb * DbDqa_cmd;
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
