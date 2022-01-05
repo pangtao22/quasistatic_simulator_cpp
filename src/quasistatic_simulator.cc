@@ -109,7 +109,8 @@ QuasistaticSimulator::QuasistaticSimulator(
 
   // MBP introspection.
   for (const auto &model : models_all_) {
-    velocity_indices_[model] = GetVelocityIndicesForModel(model);
+    velocity_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kV);
+    position_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kQ);
     const auto body_indices = plant_->GetBodyIndices(model);
     bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
@@ -166,13 +167,23 @@ QuasistaticSimulator::QuasistaticSimulator(
       sim_params_.gradient_lstsq_tolerance);
 }
 
-std::vector<int> QuasistaticSimulator::GetVelocityIndicesForModel(
-    drake::multibody::ModelInstanceIndex idx) const {
-  std::vector<double> selector(plant_->num_velocities());
+std::vector<int> QuasistaticSimulator::GetIndicesForModel(
+    drake::multibody::ModelInstanceIndex idx, ModelIndicesMode mode) const {
+  std::vector<double> selector;
+  if (mode == ModelIndicesMode::kQ) {
+    selector.resize(n_q_);
+  } else {
+    selector.resize(n_v_);
+  }
   std::iota(selector.begin(), selector.end(), 0);
   Eigen::Map<VectorXd> selector_eigen(selector.data(), selector.size());
 
-  const auto indices_d = plant_->GetVelocitiesFromArray(idx, selector_eigen);
+  VectorXd indices_d;
+  if (mode == ModelIndicesMode::kQ) {
+    indices_d = plant_->GetPositionsFromArray(idx, selector_eigen);
+  } else {
+    indices_d = plant_->GetVelocitiesFromArray(idx, selector_eigen);
+  }
   std::vector<int> indices(indices_d.size());
   for (size_t i = 0; i < indices_d.size(); i++) {
     indices[i] = roundl(indices_d[i]);
@@ -556,7 +567,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     j_start += n_v_i;
   }
 
-  const MatrixXd Dv_nextDqa_cmd = Dv_nextDb @ DbDqa_cmd;
+  const MatrixXd Dv_nextDqa_cmd = Dv_nextDb * DbDqa_cmd;
 
   if (n_v_ == n_q_) {
     return h * Dv_nextDqa_cmd;
@@ -565,6 +576,14 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     for (const auto& model : models_all_) {
       const auto& idx_v_model = velocity_indices_.at(model);
       const auto& idx_q_model = position_indices_.at(model);
+
+      if (is_3d_floating_.at(model)) {
+        const auto& Q_WB = q_dict.at(model).head(4);
+        const auto E = GetE(Q_WB);
+
+        Dv_nextDqa_cmd
+
+      }
     }
   }
 

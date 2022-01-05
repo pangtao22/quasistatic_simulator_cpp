@@ -24,6 +24,13 @@ Gradient computation mode of QuasistaticSimulator.
 */
 enum class GradientMode { kNone, kBOnly, kAB };
 
+/*
+ * Denotes whether the indices are those of a configuration vector of a model
+ * into the configuration vector of the system, or those of a velocity vector
+ * of a model into the velocity vector of the system.
+ */
+enum class ModelIndicesMode {kQ, kV};
+
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
   size_t nd_per_contact;
@@ -122,7 +129,8 @@ public:
 
 private:
   [[nodiscard]] std::vector<int>
-  GetVelocityIndicesForModel(drake::multibody::ModelInstanceIndex idx) const;
+  GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
+                     ModelIndicesMode mode) const;
 
   [[nodiscard]] double GetFrictionCoefficientForSignedDistancePair(
       drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const;
@@ -206,6 +214,8 @@ private:
   ModelInstanceIndexToVecMap robot_stiffness_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;
+  std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
+      position_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex,
                      std::unordered_set<drake::multibody::BodyIndex>>
       bodies_indices_;
