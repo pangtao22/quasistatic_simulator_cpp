@@ -15,20 +15,6 @@ const string kObjectSdfPath = GetQsimModelsPath() / "box_1m.sdf";
 const string kModelDirectivePath =
     GetQsimModelsPath() / "three_link_arm_and_ground.yml";
 
-
-std::unordered_map<ModelInstanceIndex, VectorXd>
-CreateMapKeyedByModelInstanceIndex(
-    const drake::multibody::MultibodyPlant<double>& plant,
-    const std::unordered_map<string, VectorXd>& map_str) {
-  std::unordered_map<ModelInstanceIndex, VectorXd> map_model;
-  for(const auto& [name, v] : map_str) {
-    auto model = plant.GetModelInstanceByName(name);
-    map_model[model] = v;
-  }
-  return map_model;
-}
-
-
 int main() {
   QuasistaticSimParameters sim_params;
   sim_params.gravity = Vector3d(0, 0, -10);
@@ -52,19 +38,19 @@ int main() {
   auto q_sim = QuasistaticSimulator(
       kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
 
+  const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
+  const auto idx_r = name_to_idx_map.at(robot_name);
+  const auto idx_o = name_to_idx_map.at(object_name);
 
   VectorXd q_u0(7);
   q_u0 << 1, 0, 0, 0, 0.0, 1.7, 0.5;
-  std::unordered_map<string, VectorXd> q0_dict_str = {
-      {object_name, q_u0},
-      {robot_name, Vector3d(M_PI / 2, -M_PI / 2, -M_PI / 2)},
+  ModelInstanceIndexToVecMap q0_dict = {
+      {idx_o, q_u0},
+      {idx_r, Vector3d(M_PI / 2, -M_PI / 2, -M_PI / 2)},
   };
 
-  auto q0_dict = CreateMapKeyedByModelInstanceIndex(
-      q_sim.get_plant(), q0_dict_str);
-
   q_sim.UpdateMbpPositions(q0_dict);
-  ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
+  ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
   q_sim.Step(q0_dict, tau_ext_dict, 0.1);
 
   return 0;

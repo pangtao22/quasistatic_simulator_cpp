@@ -18,18 +18,6 @@ const string kObjectSdfPath =
 
 const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
 
-std::unordered_map<ModelInstanceIndex, VectorXd>
-CreateMapKeyedByModelInstanceIndex(
-    const drake::multibody::MultibodyPlant<double> &plant,
-    const std::unordered_map<string, VectorXd> &map_str) {
-  std::unordered_map<ModelInstanceIndex, VectorXd> map_model;
-  for (const auto &[name, v] : map_str) {
-    auto model = plant.GetModelInstanceByName(name);
-    map_model[model] = v;
-  }
-  return map_model;
-}
-
 int main() {
   QuasistaticSimParameters sim_params;
   sim_params.gravity = Vector3d(0, 0, -10);
@@ -54,13 +42,15 @@ int main() {
   auto q_sim = QuasistaticSimulator(kModelDirectivePath, robot_stiffness_dict,
                                     object_sdf_dict, sim_params);
 
-  std::unordered_map<string, VectorXd> q0_dict_str = {
-      {object_name, Vector3d(0, 0.35, 0)},
-      {robot_l_name, Vector2d(-M_PI / 4, -M_PI / 4)},
-      {robot_r_name, Vector2d(M_PI / 4, M_PI / 4)}};
+  const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
+  const auto idx_l = name_to_idx_map.at(robot_l_name);
+  const auto idx_r = name_to_idx_map.at(robot_r_name);
+  const auto idx_o = name_to_idx_map.at(object_name);
 
-  auto q0_dict =
-      CreateMapKeyedByModelInstanceIndex(q_sim.get_plant(), q0_dict_str);
+  ModelInstanceIndexToVecMap q0_dict = {
+      {idx_o, Vector3d(0, 0.35, 0)},
+      {idx_l, Vector2d(-M_PI / 4, -M_PI / 4)},
+      {idx_r, Vector2d(M_PI / 4, M_PI / 4)}};
 
   for (int gradient_mode = 0; gradient_mode < 3; gradient_mode++) {
     sim_params.gradient_mode = GradientMode(gradient_mode);
@@ -70,7 +60,7 @@ int main() {
     const int n = 100;
     for (int i = 0; i < n; i++) {
       q_sim.UpdateMbpPositions(q0_dict);
-      ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
+      ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
       q_sim.Step(q0_dict, tau_ext_dict, 0.1);
       auto q_next_dict = q_sim.GetMbpPositions();
     }

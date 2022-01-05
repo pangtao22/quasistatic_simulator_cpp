@@ -88,7 +88,7 @@ int main() {
       CreateMapKeyedByModelInstanceIndex(q_sim.get_plant(), q0_dict_str);
 
   q_sim.UpdateMbpPositions(q0_dict);
-  ModelInstanceToVecMap tau_ext_dict = q_sim.CalcTauExt({});
+  ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
   q_sim.Step(q0_dict, tau_ext_dict, 0.1);
 
   return 0;
