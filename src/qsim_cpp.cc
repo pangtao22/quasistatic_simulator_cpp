@@ -72,6 +72,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("num_unactuated_dofs", &Class::num_unactuated_dofs)
         .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
         .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
-        .def("get_velocity_indices", &Class::get_velocity_indices);
+        .def("get_velocity_indices", &Class::GetVelocityIndices)
+        .def("get_position_indices", &Class::GetPositionIndices);
   }
 }

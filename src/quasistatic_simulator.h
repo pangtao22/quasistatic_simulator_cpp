@@ -123,8 +123,13 @@ public:
   Eigen::MatrixXd get_Dq_nextDqa_cmd() const { return Dq_nextDqa_cmd_; };
 
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
-  get_velocity_indices() const {
+  GetVelocityIndices() const {
     return velocity_indices_;
+  };
+
+  std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
+  GetPositionIndices() const {
+    return position_indices_;
   };
 
 private:
