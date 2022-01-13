@@ -41,19 +41,22 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_mbp_positions", &Class::GetMbpPositions)
         .def("get_positions", &Class::GetPositions)
         .def("step",
-             py::overload_cast<const ModelInstanceToVecMap &,
-                               const ModelInstanceToVecMap &, const double,
-                               const double, const GradientMode, const bool>
-                               (&Class::Step),
+             py::overload_cast<const ModelInstanceIndexToVecMap &,
+                               const ModelInstanceIndexToVecMap &, const double,
+                               const double, const GradientMode, const bool>(
+                 &Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"),
              py::arg("contact_detection_tolerance"), py::arg("gradient_mode"),
              py::arg("grad_from_active_constraints"))
-        .def("step_default",
-             py::overload_cast<const ModelInstanceToVecMap &,
-                               const ModelInstanceToVecMap &, const double>(
-                 &Class::Step),
-             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"))
+        .def(
+            "step_default",
+            py::overload_cast<const ModelInstanceIndexToVecMap &,
+                              const ModelInstanceIndexToVecMap &, const double>(
+                &Class::Step),
+            py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"))
         .def("calc_tau_ext", &Class::CalcTauExt)
+        .def("get_model_instance_name_to_index_map",
+             &Class::GetModelInstanceNameToIndexMap)
         .def("get_all_models", &Class::get_all_models)
         .def("get_actuated_models", &Class::get_actuated_models)
         .def("get_unactuated_models", &Class::get_unactuated_models)
@@ -69,6 +72,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("num_unactuated_dofs", &Class::num_unactuated_dofs)
         .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
         .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
-        .def("get_velocity_indices", &Class::get_velocity_indices);
+        .def("get_velocity_indices", &Class::GetVelocityIndices)
+        .def("get_position_indices", &Class::GetPositionIndices);
   }
 }

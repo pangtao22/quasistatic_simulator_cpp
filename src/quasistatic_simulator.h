@@ -11,8 +11,10 @@
 
 #include "qp_derivatives.h"
 
-using ModelInstanceToVecMap =
+using ModelInstanceIndexToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
+using ModelInstanceNameToIndexMap =
+    std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
 
 /*
 Gradient computation mode of QuasistaticSimulator.
@@ -21,6 +23,13 @@ Gradient computation mode of QuasistaticSimulator.
     - kAB: computes both dfdx and dfdu.
 */
 enum class GradientMode { kNone, kBOnly, kAB };
+
+/*
+ * Denotes whether the indices are those of a configuration vector of a model
+ * into the configuration vector of the system, or those of a velocity vector
+ * of a model into the velocity vector of the system.
+ */
+enum class ModelIndicesMode {kQ, kV};
 
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
@@ -41,32 +50,35 @@ public:
       const std::unordered_map<std::string, std::string> &object_sdf_paths,
       QuasistaticSimParameters sim_params);
 
-  void UpdateMbpPositions(const ModelInstanceToVecMap &q_dict);
+  void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
 
-  [[nodiscard]] ModelInstanceToVecMap GetMbpPositions() const;
+  [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
 
   Eigen::VectorXd
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
 
-  void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict, const double h,
+  void Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+            const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
             const double contact_detection_tolerance,
             const GradientMode gradient_mode,
             const bool grad_from_active_constraints);
 
-  void Step(const ModelInstanceToVecMap &q_a_cmd_dict,
-            const ModelInstanceToVecMap &tau_ext_dict, const double h);
+  void Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+            const ModelInstanceIndexToVecMap &tau_ext_dict, const double h);
 
   void GetGeneralizedForceFromExternalSpatialForce(
       const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
           &easf,
-      ModelInstanceToVecMap *tau_ext) const;
+      ModelInstanceIndexToVecMap *tau_ext) const;
 
-  void CalcGravityForUnactuatedModels(ModelInstanceToVecMap *tau_ext) const;
+  void
+  CalcGravityForUnactuatedModels(ModelInstanceIndexToVecMap *tau_ext) const;
 
-  ModelInstanceToVecMap CalcTauExt(
+  ModelInstanceIndexToVecMap CalcTauExt(
       const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
           &easf_list) const;
+
+  ModelInstanceNameToIndexMap GetModelInstanceNameToIndexMap() const;
 
   [[nodiscard]] const std::set<drake::multibody::ModelInstanceIndex> &
   get_all_models() const {
@@ -100,7 +112,7 @@ public:
     return contact_results_;
   }
 
-  void update_sim_params(const QuasistaticSimParameters& new_params) {
+  void update_sim_params(const QuasistaticSimParameters &new_params) {
     sim_params_ = new_params;
   }
 
@@ -111,13 +123,19 @@ public:
   Eigen::MatrixXd get_Dq_nextDqa_cmd() const { return Dq_nextDqa_cmd_; };
 
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
-  get_velocity_indices() const {
+  GetVelocityIndices() const {
     return velocity_indices_;
+  };
+
+  std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
+  GetPositionIndices() const {
+    return position_indices_;
   };
 
 private:
   [[nodiscard]] std::vector<int>
-  GetVelocityIndicesForModel(drake::multibody::ModelInstanceIndex idx) const;
+  GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
+                     ModelIndicesMode mode) const;
 
   [[nodiscard]] double GetFrictionCoefficientForSignedDistancePair(
       drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const;
@@ -142,20 +160,24 @@ private:
                           drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
                           drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
 
-  void FormQAndTauH(const ModelInstanceToVecMap &q_dict,
-                    const ModelInstanceToVecMap &q_a_cmd_dict,
-                    const ModelInstanceToVecMap &tau_ext_dict, const double h,
-                    Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr) const;
+  void FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
+                    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                    const ModelInstanceIndexToVecMap &tau_ext_dict,
+                    const double h, Eigen::MatrixXd *Q_ptr,
+                    Eigen::VectorXd *tau_h_ptr) const;
   std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd>& v) const;
+  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const double h) const;
+                           const double h,
+                           const ModelInstanceIndexToVecMap& q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_c, const int n_d, const int n_f) const;
+  static Eigen::Matrix<double, 4, 3>
+  GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
   QuasistaticSimParameters sim_params_;
 
@@ -187,16 +209,18 @@ private:
   // MBP introspection.
   int n_v_a_{0}; // number of actuated DOFs.
   int n_v_u_{0}; // number of un-actuated DOFs.
-  int n_v_{0}; // total number of velocities.
-  int n_q_{0}; // total number of positions.
+  int n_v_{0};   // total number of velocities.
+  int n_q_{0};   // total number of positions.
   std::set<drake::multibody::ModelInstanceIndex> models_actuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_unactuated_;
   std::set<drake::multibody::ModelInstanceIndex> models_all_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
-    is_3d_floating_;
-  ModelInstanceToVecMap robot_stiffness_;
+      is_3d_floating_;
+  ModelInstanceIndexToVecMap robot_stiffness_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;
+  std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
+      position_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex,
                      std::unordered_set<drake::multibody::BodyIndex>>
       bodies_indices_;
