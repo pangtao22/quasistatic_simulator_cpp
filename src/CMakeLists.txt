@@ -40,8 +40,13 @@ add_library(quasistatic_simulator quasistatic_simulator.h
 target_link_libraries(quasistatic_simulator qp_derivatives drake::drake
         get_model_paths)
 
+add_library(batch_quasistatic_simulator batch_quasistatic_simulator.h
+        batch_quasistatic_simulator.cc)
+target_link_libraries(batch_quasistatic_simulator quasistatic_simulator)
+
 pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
-target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator)
+target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
+        batch_quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
 target_link_libraries(run_planar_hand_ball quasistatic_simulator)

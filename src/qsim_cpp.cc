@@ -3,16 +3,16 @@
 #include <pybind11/stl.h>
 
 #include "quasistatic_simulator.h"
+#include "batch_quasistatic_simulator.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(qsim_cpp, m) {
+  py::enum_<GradientMode>(m, "GradientMode")
+      .value("kNone", GradientMode::kNone)
+      .value("kBOnly", GradientMode::kBOnly)
+      .value("kAB", GradientMode::kAB);
   {
-    py::enum_<GradientMode>(m, "GradientMode")
-        .value("kNone", GradientMode::kNone)
-        .value("kBOnly", GradientMode::kBOnly)
-        .value("kAB", GradientMode::kAB);
-
     using Class = QuasistaticSimParameters;
     py::class_<Class>(m, "QuasistaticSimParametersCpp")
         .def(py::init<>())
@@ -74,5 +74,18 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
         .def("get_velocity_indices", &Class::GetVelocityIndices)
         .def("get_position_indices", &Class::GetPositionIndices);
+  }
+
+  {
+    using Class = BatchQuasistaticSimulator;
+    py::class_<Class>(m, "BatchQuasistaticSimulator")
+        .def(py::init<std::string,
+                      const std::unordered_map<std::string, Eigen::VectorXd> &,
+                      const std::unordered_map<std::string, std::string> &,
+                      QuasistaticSimParameters>(),
+             py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
+             py::arg("object_sdf_paths"), py::arg("sim_params"))
+        .def("calc_forward_dynamics", &Class::CalcForwardDynamics)
+        .def("get_hardware_concurrency", &Class::get_hardware_concurrency);
   }
 }

@@ -91,6 +91,8 @@ QuasistaticSimulator::QuasistaticSimulator(
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
       solver_(std::make_unique<drake::solvers::GurobiSolver>()) {
+  solver_options_.SetOption(drake::solvers::GurobiSolver::id(), "Threads", 0);
+
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -229,8 +231,7 @@ void QuasistaticSimulator::UpdateMbpPositions(
 }
 
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
-  std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-      q_dict;
+  ModelInstanceIndexToVecMap q_dict;
   for (const auto &model : models_all_) {
     q_dict[model] = plant_->GetPositions(*context_plant_, model);
   }
@@ -451,7 +452,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       -J, VectorXd::Constant(n_f, -std::numeric_limits<double>::infinity()), e,
       v);
 
-  solver_->Solve(prog, {}, {}, &mp_result_);
+  solver_->Solve(prog, {}, solver_options_, &mp_result_);
   DRAKE_THROW_UNLESS(mp_result_.is_success());
 
   const VectorXd v_star = mp_result_.GetSolution(v);
@@ -523,8 +524,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   }
 }
 
-std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-QuasistaticSimulator::GetVdictFromV(
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromV(
     const Eigen::Ref<const Eigen::VectorXd> &v) const {
   DRAKE_THROW_UNLESS(v.size() == n_v_);
   std::unordered_map<ModelInstanceIndex, VectorXd> v_dict;
@@ -541,6 +541,23 @@ QuasistaticSimulator::GetVdictFromV(
   return v_dict;
 }
 
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(const Eigen::Ref<
+    const Eigen::VectorXd> &q) const {
+  DRAKE_THROW_UNLESS(q.size() == n_q_);
+  std::unordered_map<ModelInstanceIndex, VectorXd> q_dict;
+
+  for (const auto &model : models_all_) {
+    const auto &idx_q = position_indices_.at(model);
+    auto q_model = VectorXd(idx_q.size());
+
+    for (int i = 0; i < idx_q.size(); i++) {
+      q_model[i] = q[idx_q[i]];
+    }
+    q_dict[model] = q_model;
+  }
+  return q_dict;
+}
+
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const double h) {
@@ -550,7 +567,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h,
-    const ModelInstanceIndexToVecMap& q_dict) const {
+    const ModelInstanceIndexToVecMap &q_dict) const {
   MatrixXd DbDqa_cmd = MatrixXd::Zero(n_v_, n_v_a_);
   int j_start = 0;
   for (const auto &model : models_actuated_) {
@@ -573,13 +590,13 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     return h * Dv_nextDqa_cmd;
   } else {
     MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
-    for (const auto& model : models_all_) {
-      const auto& idx_v_model = velocity_indices_.at(model);
-      const auto& idx_q_model = position_indices_.at(model);
+    for (const auto &model : models_all_) {
+      const auto &idx_v_model = velocity_indices_.at(model);
+      const auto &idx_q_model = position_indices_.at(model);
 
       if (is_3d_floating_.at(model)) {
         // If q contains a quaternion.
-        const Eigen::Vector4d & Q_WB = q_dict.at(model).head(4);
+        const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
         const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
 
         MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_);
@@ -588,7 +605,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
         }
 
         MatrixXd E_X_Dv_nextDqa_cmd_model_rot = E * Dv_nextDqa_cmd_model_rot;
-        for(int i = 0; i < 7; i++) {
+        for (int i = 0; i < 7; i++) {
           const int i_q = idx_q_model[i];
           if (i < 4) {
             // Rotation.

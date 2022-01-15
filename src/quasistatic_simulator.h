@@ -53,6 +53,9 @@ public:
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
+  [[nodiscard]] Eigen::VectorXd GetMbpPositionsVec() const {
+    return plant_->GetPositions(*context_plant_);
+  }
 
   Eigen::VectorXd
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
@@ -95,6 +98,10 @@ public:
     return models_unactuated_;
   };
 
+  [[nodiscard]] const QuasistaticSimParameters &get_sim_params() const {
+    return sim_params_;
+  }
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };
@@ -132,6 +139,12 @@ public:
     return position_indices_;
   };
 
+  ModelInstanceIndexToVecMap
+  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
+
+  ModelInstanceIndexToVecMap
+  GetQdictFromQ(const Eigen::Ref<const Eigen::VectorXd> &q) const;
+
 private:
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
@@ -165,8 +178,6 @@ private:
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
                     const double h, Eigen::MatrixXd *Q_ptr,
                     Eigen::VectorXd *tau_h_ptr) const;
-  std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const double h,
@@ -184,6 +195,7 @@ private:
   // QP solver.
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
+  drake::solvers::SolverOptions solver_options_;
 
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
