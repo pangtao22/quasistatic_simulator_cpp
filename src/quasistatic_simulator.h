@@ -51,6 +51,8 @@ public:
       QuasistaticSimParameters sim_params);
 
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
+  void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
+
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
   [[nodiscard]] Eigen::VectorXd GetMbpPositionsVec() const {

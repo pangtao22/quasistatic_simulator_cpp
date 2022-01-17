@@ -1,9 +1,12 @@
 #include <future>
+#include <mutex>
 
 #include "batch_quasistatic_simulator.h"
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
+using std::cout;
+using std::endl;
 
 ModelInstanceIndexToVecMap
 GetQaCmdDictFromU(const QuasistaticSimulator &q_sim,
@@ -23,7 +26,7 @@ VectorXd CalcDynamics(QuasistaticSimulator *q_sim,
                       const Eigen::Ref<const VectorXd> &q,
                       const Eigen::Ref<const VectorXd> &u, double h,
                       const GradientMode gradient_mode) {
-  q_sim->UpdateMbpPositions(q_sim->GetQdictFromQ(q));
+  q_sim->UpdateMbpPositions(q);
   auto tau_ext_dict = q_sim->CalcTauExt({});
   auto q_a_cmd_dict = GetQaCmdDictFromU(*q_sim, u);
   q_sim->Step(q_a_cmd_dict, tau_ext_dict, h,
@@ -56,40 +59,48 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcForwardDynamics(
   const size_t batch_size = n_tasks / n_threads;
 
   // Storage for forward dynamics results.
-  std::list<std::future<MatrixXd>> operations;
-
   const size_t n_q = x_batch.cols();
   const size_t n_u = u_batch.cols();
 
+  std::list<MatrixXd> x_next_batch_v;
+  for (int i = 0; i < n_threads; i++) {
+    x_next_batch_v.emplace_back(batch_size, n_q);
+  }
+
+  std::list<std::future<size_t>> operations;
+
   // Launch threads.
   auto q_sim_iter = q_sims_.begin();
+  auto x_next_batch_iter = x_next_batch_v.begin();
   for (size_t i = 0; i < n_threads; i++) {
-    auto calc_dynamics_batch =
-        [&q_sim = *q_sim_iter,
-         &x_thread = x_batch.block(i * batch_size, 0, batch_size, n_q),
-         &u_thread = u_batch.block(i * batch_size, 0, batch_size, n_u), n_q,
-         batch_size, h] {
-          MatrixXd x_next_thread(batch_size, n_q);
-          x_next_thread.setZero();
-          for (size_t i = 0; i < batch_size; i++) {
-            x_next_thread.row(i) =
-                CalcDynamics(&q_sim, x_thread.row(i), u_thread.row(i), h,
-                             GradientMode::kNone);
-          }
-          return x_next_thread;
-        };
+    auto calc_dynamics_batch = [&q_sim = *q_sim_iter, &x_batch, &u_batch,
+                                &x_next_thread = *x_next_batch_iter, batch_size,
+                                h, i_thread = i] {
+      const auto offset = i_thread * batch_size;
+      for (size_t i = 0; i < batch_size; i++) {
+        x_next_thread.row(i) =
+            CalcDynamics(&q_sim, x_batch.row(i + offset),
+                         u_batch.row(i + offset), h, GradientMode::kNone);
+      }
+      return i_thread;
+    };
 
-    operations.emplace_back(std::async(std::launch::async,
-                                       calc_dynamics_batch));
+    operations.emplace_back(
+        std::async(std::launch::async, std::move(calc_dynamics_batch)));
     q_sim_iter++;
+    x_next_batch_iter++;
   }
 
   // Collect results from threads.
-  MatrixXd x_next_batch(n_tasks, n_q);
   int i = 0;
-  for (auto& op : operations) {
-    x_next_batch.block(i * batch_size, 0, batch_size, n_q) = op.get();
+  MatrixXd x_next_batch(n_tasks, n_q);
+  x_next_batch_iter = x_next_batch_v.begin();
+  for (auto &op : operations) {
+    op.get(); // catch exceptions.
+    x_next_batch.block(i * batch_size, 0, batch_size, n_q) = *x_next_batch_iter;
+
     i++;
+    x_next_batch_iter++;
   }
 
   return x_next_batch;

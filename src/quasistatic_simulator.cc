@@ -230,6 +230,14 @@ void QuasistaticSimulator::UpdateMbpPositions(
           *context_sg_));
 }
 
+void QuasistaticSimulator::UpdateMbpPositions(const Eigen::Ref<const
+    Eigen::VectorXd> &q) {
+  plant_->SetPositions(context_plant_, q);
+  query_object_ =
+      &(sg_->get_query_output_port().Eval<drake::geometry::QueryObject<double>>(
+          *context_sg_));
+}
+
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
   ModelInstanceIndexToVecMap q_dict;
   for (const auto &model : models_all_) {
