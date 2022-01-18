@@ -37,7 +37,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
                       QuasistaticSimParameters>(),
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
-        .def("update_mbp_positions", &Class::UpdateMbpPositions)
+        .def("update_mbp_positions",
+             py::overload_cast<const ModelInstanceIndexToVecMap &>(
+                 &Class::UpdateMbpPositions))
         .def("get_mbp_positions", &Class::GetMbpPositions)
         .def("get_positions", &Class::GetPositions)
         .def("step",
