@@ -11,7 +11,7 @@ using Eigen::VectorXd;
 void QpDerivativesBase::check_solution_error(double error) {
   is_solution_valid_ = error < tol_;
 
-  if (isnan(error)) {
+  if (std::isnan(error)) {
     throw std::runtime_error("Gradient is nan.");
   }
 
