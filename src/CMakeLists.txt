@@ -49,7 +49,7 @@ target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
         batch_quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
-target_link_libraries(run_planar_hand_ball quasistatic_simulator)
+target_link_libraries(run_planar_hand_ball quasistatic_simulator gtest)
 
 add_executable(run_3link_arm_3d run_3link_arm_3d.cc)
 target_link_libraries(run_3link_arm_3d quasistatic_simulator
@@ -57,3 +57,7 @@ target_link_libraries(run_3link_arm_3d quasistatic_simulator
 
 add_executable(run_iiwa_box_stacking run_iiwa_box_stacking.cc)
 target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
+
+add_executable(test_batch_simulator test_batch_simulator.cc)
+target_link_libraries(test_batch_simulator batch_quasistatic_simulator
+        gtest)

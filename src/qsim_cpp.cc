@@ -87,7 +87,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
                       QuasistaticSimParameters>(),
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
-        .def("calc_forward_dynamics", &Class::CalcForwardDynamics)
+        .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
         .def("get_hardware_concurrency", &Class::get_hardware_concurrency);
   }
 }

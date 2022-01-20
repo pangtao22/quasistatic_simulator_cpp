@@ -67,7 +67,7 @@ int main() {
   }
 
   auto t_start = std::chrono::steady_clock::now();
-  auto x_next = q_sim_batch.CalcForwardDynamics(x_batch, u_batch, 0.1);
+  auto x_next = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1);
   auto t_end = std::chrono::steady_clock::now();
   cout << "wall time ms parallel: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -

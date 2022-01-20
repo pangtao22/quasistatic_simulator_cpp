@@ -8,33 +8,6 @@ using Eigen::VectorXd;
 using std::cout;
 using std::endl;
 
-ModelInstanceIndexToVecMap
-GetQaCmdDictFromU(const QuasistaticSimulator &q_sim,
-                  const Eigen::Ref<const Eigen::VectorXd> &u) {
-  ModelInstanceIndexToVecMap q_a_cmd_dict;
-  size_t i_start = 0;
-  for (const auto &model : q_sim.get_actuated_models()) {
-    auto n_v_i = q_sim.get_plant().num_velocities(model);
-    q_a_cmd_dict[model] = u.segment(i_start, n_v_i);
-    i_start += n_v_i;
-  }
-
-  return q_a_cmd_dict;
-}
-
-VectorXd CalcDynamics(QuasistaticSimulator *q_sim,
-                      const Eigen::Ref<const VectorXd> &q,
-                      const Eigen::Ref<const VectorXd> &u, double h,
-                      const GradientMode gradient_mode) {
-  q_sim->UpdateMbpPositions(q);
-  auto tau_ext_dict = q_sim->CalcTauExt({});
-  auto q_a_cmd_dict = GetQaCmdDictFromU(*q_sim, u);
-  q_sim->Step(q_a_cmd_dict, tau_ext_dict, h,
-              q_sim->get_sim_params().contact_detection_tolerance,
-              gradient_mode, true);
-  return q_sim->GetMbpPositionsVec();
-}
-
 BatchQuasistaticSimulator::BatchQuasistaticSimulator(
     const std::string &model_directive_path,
     const std::unordered_map<std::string, Eigen::VectorXd> &robot_stiffness_str,
@@ -47,16 +20,48 @@ BatchQuasistaticSimulator::BatchQuasistaticSimulator(
   }
 }
 
-Eigen::MatrixXd BatchQuasistaticSimulator::CalcForwardDynamics(
+VectorXd BatchQuasistaticSimulator::CalcDynamics(
+    QuasistaticSimulator *q_sim, const Eigen::Ref<const VectorXd> &q,
+    const Eigen::Ref<const VectorXd> &u, double h,
+    const GradientMode gradient_mode) {
+  q_sim->UpdateMbpPositions(q);
+  auto tau_ext_dict = q_sim->CalcTauExt({});
+  auto q_a_cmd_dict = q_sim->GetQaCmdDictFromQaCmd(u);
+  q_sim->Step(q_a_cmd_dict, tau_ext_dict, h,
+              q_sim->get_sim_params().contact_detection_tolerance,
+              gradient_mode, true);
+  return q_sim->GetMbpPositionsAsVec();
+}
+
+Eigen::MatrixXd BatchQuasistaticSimulator::CalcDynamicsSingleThread(
+    const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
+    const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h) {
+  const size_t n_tasks = x_batch.rows();
+  DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
+  MatrixXd x_next_batch(x_batch);
+
+  auto &q_sim = *(q_sims_.begin());
+
+  for (int i = 0; i < n_tasks; i++) {
+    x_next_batch.row(i) = CalcDynamics(&q_sim, x_batch.row(i), u_batch.row(i),
+                                       h, GradientMode::kNone);
+  }
+  return x_next_batch;
+}
+
+Eigen::MatrixXd BatchQuasistaticSimulator::CalcDynamicsParallel(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h) const {
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
 
   const auto n_threads = std::min(hardware_concurrency_, n_tasks);
-  // TODO: remove this check.
-  DRAKE_THROW_UNLESS(n_tasks % n_threads == 0);
   const size_t batch_size = n_tasks / n_threads;
+  std::vector<size_t> batch_sizes(n_threads);
+  for (int i = 0; i < n_threads - 1; i++) {
+    batch_sizes[i] = batch_size;
+  }
+  batch_sizes[n_threads - 1] = n_tasks - (n_threads - 1) * batch_size;
 
   // Storage for forward dynamics results.
   const size_t n_q = x_batch.cols();
@@ -64,25 +69,25 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcForwardDynamics(
 
   std::list<MatrixXd> x_next_batch_v;
   for (int i = 0; i < n_threads; i++) {
-    x_next_batch_v.emplace_back(batch_size, n_q);
+    x_next_batch_v.emplace_back(batch_sizes[i], n_q);
   }
 
-  std::list<std::future<size_t>> operations;
+  std::list<std::future<void>> operations;
 
   // Launch threads.
   auto q_sim_iter = q_sims_.begin();
   auto x_next_batch_iter = x_next_batch_v.begin();
-  for (size_t i = 0; i < n_threads; i++) {
+  for (int i_thread = 0; i_thread < n_threads; i_thread++) {
     auto calc_dynamics_batch = [&q_sim = *q_sim_iter, &x_batch, &u_batch,
-                                &x_next_thread = *x_next_batch_iter, batch_size,
-                                h, i_thread = i] {
-      const auto offset = i_thread * batch_size;
-      for (size_t i = 0; i < batch_size; i++) {
+                                &x_next_thread = *x_next_batch_iter,
+                                &batch_sizes, h, i_thread] {
+      const auto offset = std::accumulate(batch_sizes.begin(),
+                                          batch_sizes.begin() + i_thread, 0);
+      for (int i = 0; i < batch_sizes[i_thread]; i++) {
         x_next_thread.row(i) =
             CalcDynamics(&q_sim, x_batch.row(i + offset),
                          u_batch.row(i + offset), h, GradientMode::kNone);
       }
-      return i_thread;
     };
 
     operations.emplace_back(
@@ -97,7 +102,8 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcForwardDynamics(
   x_next_batch_iter = x_next_batch_v.begin();
   for (auto &op : operations) {
     op.get(); // catch exceptions.
-    x_next_batch.block(i * batch_size, 0, batch_size, n_q) = *x_next_batch_iter;
+    x_next_batch.block(i * batch_size, 0, batch_sizes[i], n_q) =
+        *x_next_batch_iter;
 
     i++;
     x_next_batch_iter++;

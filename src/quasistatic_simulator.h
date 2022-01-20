@@ -29,7 +29,7 @@ enum class GradientMode { kNone, kBOnly, kAB };
  * into the configuration vector of the system, or those of a velocity vector
  * of a model into the velocity vector of the system.
  */
-enum class ModelIndicesMode {kQ, kV};
+enum class ModelIndicesMode { kQ, kV };
 
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
@@ -53,9 +53,8 @@ public:
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
   void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
 
-
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
-  [[nodiscard]] Eigen::VectorXd GetMbpPositionsVec() const {
+  [[nodiscard]] Eigen::VectorXd GetMbpPositionsAsVec() const {
     return plant_->GetPositions(*context_plant_);
   }
 
@@ -147,6 +146,26 @@ public:
   ModelInstanceIndexToVecMap
   GetQdictFromQ(const Eigen::Ref<const Eigen::VectorXd> &q) const;
 
+  Eigen::VectorXd GetQFromQdict(const ModelInstanceIndexToVecMap &q_dict) const;
+
+  /*
+   * QaCmd, sometimes denoted by u, is the concatenation of position vectors
+   * for all models in this->models_actuated_, which is sorted in ascending
+   * order.
+   * They keys of q_a_cmd_dict does not need to be the same as
+   * this->models_actuated. It only needs to be a superset of
+   * this->models_actuated. This means that it is possible to pass in a
+   * dictionary containing position vectors for all model instances in the
+   * system, including potentially position vectors of un-actuated models,
+   * and this method will extract the actuated position vectors and
+   * concatenate them into a single vector.
+   */
+  Eigen::VectorXd
+  GetQaCmdFromQaCmdDict(const ModelInstanceIndexToVecMap &q_a_cmd_dict) const;
+
+  ModelInstanceIndexToVecMap GetQaCmdDictFromQaCmd(
+      const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
+
 private:
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
@@ -183,7 +202,7 @@ private:
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const double h,
-                           const ModelInstanceIndexToVecMap& q_dict) const;
+                           const ModelInstanceIndexToVecMap &q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,

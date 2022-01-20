@@ -230,8 +230,8 @@ void QuasistaticSimulator::UpdateMbpPositions(
           *context_sg_));
 }
 
-void QuasistaticSimulator::UpdateMbpPositions(const Eigen::Ref<const
-    Eigen::VectorXd> &q) {
+void QuasistaticSimulator::UpdateMbpPositions(
+    const Eigen::Ref<const Eigen::VectorXd> &q) {
   plant_->SetPositions(context_plant_, q);
   query_object_ =
       &(sg_->get_query_output_port().Eval<drake::geometry::QueryObject<double>>(
@@ -549,10 +549,10 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromV(
   return v_dict;
 }
 
-ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(const Eigen::Ref<
-    const Eigen::VectorXd> &q) const {
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(
+    const Eigen::Ref<const Eigen::VectorXd> &q) const {
   DRAKE_THROW_UNLESS(q.size() == n_q_);
-  std::unordered_map<ModelInstanceIndex, VectorXd> q_dict;
+  ModelInstanceIndexToVecMap q_dict;
 
   for (const auto &model : models_all_) {
     const auto &idx_q = position_indices_.at(model);
@@ -565,6 +565,46 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(const Eigen::Ref<
   }
   return q_dict;
 }
+
+Eigen::VectorXd QuasistaticSimulator::GetQFromQdict(
+    const ModelInstanceIndexToVecMap &q_dict) const {
+  VectorXd q(n_q_);
+  for (const auto &model : models_all_) {
+    const auto &idx_q = position_indices_.at(model);
+    const auto &q_model = q_dict.at(model);
+    for (int i = 0; i < idx_q.size(); i++) {
+      q[idx_q[i]] = q_model[i];
+    }
+  }
+  return q;
+}
+
+Eigen::VectorXd QuasistaticSimulator::GetQaCmdFromQaCmdDict(
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict) const {
+  int i_start = 0;
+  VectorXd q_a_cmd(n_v_a_);
+  for (const auto &model : models_actuated_) {
+    auto n_v_i = plant_->num_velocities(model);
+    q_a_cmd.segment(i_start, n_v_i) = q_a_cmd_dict.at(model);
+    i_start += n_v_i;
+  }
+
+  return q_a_cmd;
+}
+
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromQaCmd(
+    const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const {
+  ModelInstanceIndexToVecMap q_a_cmd_dict;
+  int i_start = 0;
+  for (const auto &model : models_actuated_) {
+    auto n_v_i = plant_->num_velocities(model);
+    q_a_cmd_dict[model] = q_a_cmd.segment(i_start, n_v_i);
+    i_start += n_v_i;
+  }
+
+  return q_a_cmd_dict;
+}
+
 
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
