@@ -61,3 +61,5 @@ target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
 add_executable(test_batch_simulator test_batch_simulator.cc)
 target_link_libraries(test_batch_simulator batch_quasistatic_simulator
         gtest)
+
+add_test(NAME test_batch_simulator COMMAND test_batch_simulator)
