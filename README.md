@@ -19,7 +19,7 @@ ${HOME}/PycharmProjects/robotics_utilities
 ```
 
 ## Running tests
-At the root of this repo. run
+At the root of this repo, run
 ```bash
 mkdir build && cd build
 cmake .. # with -DCMAKE_PREFIX_PATH=/path/to/drake and -DCMAKE_BUILD_TYPE=release, if necessary.
