@@ -165,12 +165,10 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
 
   // B.
   std::vector<MatrixXd> B_batch;
-//  if (gradient_mode == GradientMode::kBOnly) {
-    for (B_iter = B_list.begin(); B_iter != B_list.end(); B_iter++) {
-      B_batch.insert(B_batch.end(), std::make_move_iterator(B_iter->begin()),
-                     std::make_move_iterator(B_iter->end()));
-    }
-//  }
+  for (B_iter = B_list.begin(); B_iter != B_list.end(); B_iter++) {
+    B_batch.insert(B_batch.end(), std::make_move_iterator(B_iter->begin()),
+                   std::make_move_iterator(B_iter->end()));
+  }
 
   // is_valid_batch.
   std::vector<bool> is_valid_batch;
