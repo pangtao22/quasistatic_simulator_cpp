@@ -33,28 +33,53 @@ VectorXd BatchQuasistaticSimulator::CalcDynamics(
   return q_sim->GetMbpPositionsAsVec();
 }
 
-Eigen::MatrixXd BatchQuasistaticSimulator::CalcDynamicsSingleThread(
+std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
+BatchQuasistaticSimulator::CalcDynamicsSingleThread(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
-    const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h) {
+    const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
+    const GradientMode gradient_mode) {
+  DRAKE_THROW_UNLESS(gradient_mode != GradientMode::kAB);
+
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
   MatrixXd x_next_batch(x_batch);
+  std::vector<MatrixXd> B_batch;
+  std::vector<bool> is_valid_batch(n_tasks);
+  const auto n_q = x_batch.cols();
+  const auto n_u = u_batch.cols();
 
   auto &q_sim = *(q_sims_.begin());
 
   for (int i = 0; i < n_tasks; i++) {
-    x_next_batch.row(i) = CalcDynamics(&q_sim, x_batch.row(i), u_batch.row(i),
-                                       h, GradientMode::kNone);
+    if (gradient_mode == GradientMode::kBOnly) {
+      B_batch.emplace_back(MatrixXd::Zero(n_q, n_u));
+    }
+    try {
+      x_next_batch.row(i) = CalcDynamics(&q_sim, x_batch.row(i), u_batch.row(i),
+                                         h, gradient_mode);
+      if (gradient_mode == GradientMode::kBOnly) {
+        B_batch.back() = q_sim.get_Dq_nextDqa_cmd();
+      }
+
+      is_valid_batch[i] = true;
+    } catch (std::runtime_error &err) {
+      is_valid_batch[i] = false;
+    }
   }
-  return x_next_batch;
+
+  return {x_next_batch, B_batch, is_valid_batch};
 }
 
-Eigen::MatrixXd BatchQuasistaticSimulator::CalcDynamicsParallel(
+std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
+BatchQuasistaticSimulator::CalcDynamicsParallel(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
-    const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h) const {
+    const Eigen::Ref<const Eigen::MatrixXd> &u_batch, const double h,
+    const GradientMode gradient_mode) const {
+  DRAKE_THROW_UNLESS(gradient_mode != GradientMode::kAB);
+
+  // Compute number of threads and batch size for each thread.
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
-
   const auto n_threads = std::min(hardware_concurrency_, n_tasks);
   const size_t batch_size = n_tasks / n_threads;
   std::vector<size_t> batch_sizes(n_threads);
@@ -63,51 +88,97 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcDynamicsParallel(
   }
   batch_sizes[n_threads - 1] = n_tasks - (n_threads - 1) * batch_size;
 
-  // Storage for forward dynamics results.
-  const size_t n_q = x_batch.cols();
-  const size_t n_u = u_batch.cols();
+  // Allocate storage for results.
+  const auto n_q = x_batch.cols();
+  const auto n_u = u_batch.cols();
 
-  std::list<MatrixXd> x_next_batch_v;
+  std::list<MatrixXd> x_next_list;
+  std::list<std::vector<MatrixXd>> B_list;
+  std::list<std::vector<bool>> is_valid_list;
   for (int i = 0; i < n_threads; i++) {
-    x_next_batch_v.emplace_back(batch_sizes[i], n_q);
+    x_next_list.emplace_back(batch_sizes[i], n_q);
+
+    if (gradient_mode == GradientMode::kBOnly) {
+      B_list.emplace_back(batch_sizes[i]);
+      auto &B_batch = B_list.back();
+      std::for_each(B_batch.begin(), B_batch.end(),
+                    [n_q, n_u](Eigen::MatrixXd &A) { A = MatrixXd::Zero(n_q,
+                                                                       n_u); });
+    }
+
+    is_valid_list.emplace_back(batch_sizes[i]);
   }
 
-  std::list<std::future<void>> operations;
-
   // Launch threads.
+  std::list<std::future<void>> operations;
   auto q_sim_iter = q_sims_.begin();
-  auto x_next_batch_iter = x_next_batch_v.begin();
+  auto x_next_iter = x_next_list.begin();
+  auto B_iter = B_list.begin();
+  auto is_valid_iter = is_valid_list.begin();
+
   for (int i_thread = 0; i_thread < n_threads; i_thread++) {
+    // subscript _t indicates a quantity for a thread.
     auto calc_dynamics_batch = [&q_sim = *q_sim_iter, &x_batch, &u_batch,
-                                &x_next_thread = *x_next_batch_iter,
-                                &batch_sizes, h, i_thread] {
+                                &x_next_t = *x_next_iter, &B_t = *B_iter,
+                                &is_valid_t = *is_valid_iter, &batch_sizes, h,
+                                i_thread, gradient_mode] {
       const auto offset = std::accumulate(batch_sizes.begin(),
                                           batch_sizes.begin() + i_thread, 0);
       for (int i = 0; i < batch_sizes[i_thread]; i++) {
-        x_next_thread.row(i) =
-            CalcDynamics(&q_sim, x_batch.row(i + offset),
-                         u_batch.row(i + offset), h, GradientMode::kNone);
+        try {
+          x_next_t.row(i) =
+              CalcDynamics(&q_sim, x_batch.row(i + offset),
+                           u_batch.row(i + offset), h, gradient_mode);
+
+          if (gradient_mode == GradientMode::kBOnly) {
+            B_t[i] = q_sim.get_Dq_nextDqa_cmd();
+          }
+
+          is_valid_t[i] = true;
+        } catch (std::runtime_error &err) {
+          is_valid_t[i] = false;
+        }
       }
     };
 
     operations.emplace_back(
         std::async(std::launch::async, std::move(calc_dynamics_batch)));
+
     q_sim_iter++;
-    x_next_batch_iter++;
+    x_next_iter++;
+    B_iter++;
+    is_valid_iter++;
   }
 
   // Collect results from threads.
+  // x_next;
   int i = 0;
   MatrixXd x_next_batch(n_tasks, n_q);
-  x_next_batch_iter = x_next_batch_v.begin();
+  x_next_iter = x_next_list.begin();
   for (auto &op : operations) {
     op.get(); // catch exceptions.
-    x_next_batch.block(i * batch_size, 0, batch_sizes[i], n_q) =
-        *x_next_batch_iter;
+    x_next_batch.block(i * batch_size, 0, batch_sizes[i], n_q) = *x_next_iter;
 
     i++;
-    x_next_batch_iter++;
+    x_next_iter++;
   }
 
-  return x_next_batch;
+  // B.
+  std::vector<MatrixXd> B_batch;
+//  if (gradient_mode == GradientMode::kBOnly) {
+    for (B_iter = B_list.begin(); B_iter != B_list.end(); B_iter++) {
+      B_batch.insert(B_batch.end(), std::make_move_iterator(B_iter->begin()),
+                     std::make_move_iterator(B_iter->end()));
+    }
+//  }
+
+  // is_valid_batch.
+  std::vector<bool> is_valid_batch;
+  for (is_valid_iter = is_valid_list.begin();
+       is_valid_iter != is_valid_list.end(); is_valid_iter++) {
+    is_valid_batch.insert(is_valid_batch.end(), is_valid_iter->begin(),
+                          is_valid_iter->end());
+  }
+
+  return {x_next_batch, B_batch, is_valid_batch};
 }

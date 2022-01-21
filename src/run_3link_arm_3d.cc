@@ -52,9 +52,8 @@ int main() {
       {idx_r, Vector3d(M_PI / 2, -M_PI / 2, -M_PI / 2)},
   };
 
-  const int n_tasks = 1200;
+  const int n_tasks = 1201;
 
-  cout << "==Time batch execution==" << endl;
   auto q_sim_batch = BatchQuasistaticSimulator(
       kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
 
@@ -66,29 +65,29 @@ int main() {
     u_batch.row(i) = q0_dict[idx_r];
   }
 
+  cout << "==Time single-thread execution==" << endl;
   auto t_start = std::chrono::steady_clock::now();
-  auto x_next = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1);
+  auto x_next2 = q_sim_batch.CalcDynamicsSingleThread(x_batch, u_batch, 0.1,
+                                                      GradientMode::kNone);
   auto t_end = std::chrono::steady_clock::now();
+  cout << "wall time ms serial: "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
+           t_start)
+           .count()
+       << endl;
+
+
+  cout << "==Time batch execution==" << endl;
+  t_start = std::chrono::steady_clock::now();
+  auto x_next = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1,
+                                                 GradientMode::kNone);
+  t_end = std::chrono::steady_clock::now();
   cout << "wall time ms parallel: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
            t_start)
            .count()
        << endl;
 
-
-  cout << "==Time single-thread execution==" << endl;
-  t_start = std::chrono::steady_clock::now();
-  for (int i = 0; i < n_tasks; i++) {
-    q_sim.UpdateMbpPositions(q0_dict);
-    ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
-    q_sim.Step(q0_dict, tau_ext_dict, 0.1);
-  }
-  t_end = std::chrono::steady_clock::now();
-  cout << "wall time ms serial: "
-       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
-           t_start)
-           .count()
-       << endl;
 
 //  cout << "x_next\n" << x_next << endl;
 

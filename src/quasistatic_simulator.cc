@@ -647,7 +647,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
         const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
         const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
 
-        MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_);
+        MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_a_);
         for (int i = 0; i < 3; i++) {
           Dv_nextDqa_cmd_model_rot.row(i) = Dv_nextDqa_cmd.row(idx_v_model[i]);
         }

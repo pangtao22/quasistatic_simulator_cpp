@@ -25,9 +25,8 @@ MatrixXd CreateRandomMatrix(int n_rows, int n_cols, std::mt19937 &gen) {
   return MatrixXd::NullaryExpr(n_rows, n_cols, [&]() { return dis(gen); });
 }
 
-
 class TestBatchQuasistaticSimulator : public ::testing::Test {
- protected:
+protected:
   void SetUp() override {
     QuasistaticSimParameters sim_params;
     sim_params.gravity = Vector3d(0, 0, -10);
@@ -52,6 +51,8 @@ class TestBatchQuasistaticSimulator : public ::testing::Test {
     q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
         kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
 
+    // Make sure that n_tasks_ is not divisible by hardware_concurrency.
+    n_tasks_ = q_sim_batch_->get_hardware_concurrency() * 20 + 1;
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
     const auto idx_l = name_to_idx_map.at(robot_l_name);
@@ -68,8 +69,8 @@ class TestBatchQuasistaticSimulator : public ::testing::Test {
     const int n_q = q_sim.get_plant().num_positions();
 
     std::mt19937 gen(1);
-    u_batch_ = 0.1 * CreateRandomMatrix(n_tasks_, q_sim.num_actuated_dofs(),
-                                        gen);
+    u_batch_ =
+        0.1 * CreateRandomMatrix(n_tasks_, q_sim.num_actuated_dofs(), gen);
     u_batch_.rowwise() += u0.transpose();
 
     x_batch_.resize(n_tasks_, n_q);
@@ -77,26 +78,77 @@ class TestBatchQuasistaticSimulator : public ::testing::Test {
     x_batch_.rowwise() += q0.transpose();
   }
 
-  int n_tasks_{121};
+  void CompareIsValid(const std::vector<bool>& is_valid_batch_1,
+                      const std::vector<bool>& is_valid_batch_2) const {
+    EXPECT_EQ(n_tasks_, is_valid_batch_1.size());
+    EXPECT_EQ(n_tasks_, is_valid_batch_2.size());
+    for (int i = 0; i < is_valid_batch_1.size(); i++) {
+      EXPECT_EQ(is_valid_batch_1[i], is_valid_batch_2[i]);
+      ASSERT_TRUE(is_valid_batch_1[i]);
+    }
+  }
+
+  void CompareXNext(const Eigen::Ref<const MatrixXd>& x_next_batch_1,
+                    const Eigen::Ref<const MatrixXd>& x_next_batch_2)
+                    const {
+    EXPECT_EQ(n_tasks_, x_next_batch_1.rows());
+    EXPECT_EQ(n_tasks_, x_next_batch_2.rows());
+    const double avg_diff = (x_next_batch_2 - x_next_batch_1)
+        .matrix()
+        .rowwise()
+        .norm()
+        .sum() /
+        n_tasks_;
+    EXPECT_LT(avg_diff, 1e-6);
+  }
+
+  int n_tasks_{0};
   double h_{0.1};
   MatrixXd u_batch_, x_batch_;
   std::unique_ptr<BatchQuasistaticSimulator> q_sim_batch_;
 };
 
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamics) {
-  MatrixXd x_next_batch_parallel =
-      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_);
+  auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kNone);
 
-  MatrixXd x_next_batch_serial =
-      q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_);
+  auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
+      q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
+                                             GradientMode::kNone);
+  // is_valid.
+  CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
-  const double avg_diff = (x_next_batch_serial - x_next_batch_parallel)
-      .matrix()
-      .rowwise()
-      .norm()
-      .sum() /
-      n_tasks_;
-  EXPECT_LT(avg_diff, 1e-6);
+  // x_next.
+  CompareXNext(x_next_batch_parallel, x_next_batch_serial);
+
+  // B.
+  EXPECT_EQ(B_batch_parallel.size(), 0);
+  EXPECT_EQ(B_batch_serial.size(), 0);
+}
+
+TEST_F(TestBatchQuasistaticSimulator, TestGradient) {
+  auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
+  q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                     GradientMode::kBOnly);
+
+  auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
+  q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
+                                         GradientMode::kBOnly);
+
+  // is_valid.
+  CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
+
+  // x_next.
+  CompareXNext(x_next_batch_parallel, x_next_batch_serial);
+
+  // B.
+  EXPECT_EQ(n_tasks_, B_batch_parallel.size());
+  EXPECT_EQ(n_tasks_, B_batch_serial.size());
+  for (int i = 0; i < n_tasks_; i++) {
+    double err = (B_batch_serial[i] - B_batch_parallel[i]).norm();
+    EXPECT_LT(err, 1e-6);
+  }
 }
 
 
