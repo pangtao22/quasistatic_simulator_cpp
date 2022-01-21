@@ -1,5 +1,6 @@
 #include <iostream>
 #include <random>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -15,11 +16,6 @@ using std::cout;
 using std::endl;
 using std::string;
 
-const string kObjectSdfPath =
-    GetQsimModelsPath() / "sphere_yz_rotation_r_0.25m.sdf";
-
-const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
-
 MatrixXd CreateRandomMatrix(int n_rows, int n_cols, std::mt19937 &gen) {
   std::uniform_real_distribution<double> dis(-1.0, 1.0);
   return MatrixXd::NullaryExpr(n_rows, n_cols, [&]() { return dis(gen); });
@@ -28,6 +24,15 @@ MatrixXd CreateRandomMatrix(int n_rows, int n_cols, std::mt19937 &gen) {
 class TestBatchQuasistaticSimulator : public ::testing::Test {
 protected:
   void SetUp() override {
+    n_tasks_ = std::thread::hardware_concurrency() * 20 + 1;
+  }
+
+  void SetUpPlanarHand() {
+    const string kObjectSdfPath =
+        GetQsimModelsPath() / "sphere_yz_rotation_r_0.25m.sdf";
+
+    const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
+
     QuasistaticSimParameters sim_params;
     sim_params.gravity = Vector3d(0, 0, -10);
     sim_params.nd_per_contact = 2;
@@ -52,7 +57,6 @@ protected:
         kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
 
     // Make sure that n_tasks_ is not divisible by hardware_concurrency.
-    n_tasks_ = q_sim_batch_->get_hardware_concurrency() * 20 + 1;
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
     const auto idx_l = name_to_idx_map.at(robot_l_name);
@@ -66,16 +70,22 @@ protected:
     VectorXd q0 = q_sim.GetQFromQdict(q0_dict);
     VectorXd u0 = q_sim.GetQaCmdFromQaCmdDict(q0_dict);
 
-    const int n_q = q_sim.get_plant().num_positions();
+    SampleUBatch(u0, 0.1);
+    SetXBatch(q0);
+  }
 
-    std::mt19937 gen(1);
+  void SampleUBatch(const Eigen::Ref<const Eigen::VectorXd>& u0,
+                    double interval_size) {
+    std::mt19937 gen(2007);
     u_batch_ =
-        0.1 * CreateRandomMatrix(n_tasks_, q_sim.num_actuated_dofs(), gen);
+        interval_size * CreateRandomMatrix(n_tasks_, u0.size(), gen);
     u_batch_.rowwise() += u0.transpose();
+  }
 
-    x_batch_.resize(n_tasks_, n_q);
+  void SetXBatch(const Eigen::Ref<const Eigen::VectorXd>& x0) {
+    x_batch_.resize(n_tasks_, x0.size());
     x_batch_.setZero();
-    x_batch_.rowwise() += q0.transpose();
+    x_batch_.rowwise() += x0.transpose();
   }
 
   void CompareIsValid(const std::vector<bool>& is_valid_batch_1,
@@ -102,6 +112,16 @@ protected:
     EXPECT_LT(avg_diff, 1e-6);
   }
 
+  void CompareB(const std::vector<MatrixXd>& B_batch_1,
+                const std::vector<MatrixXd>& B_batch_2) const {
+    EXPECT_EQ(n_tasks_, B_batch_1.size());
+    EXPECT_EQ(n_tasks_, B_batch_2.size());
+    for (int i = 0; i < n_tasks_; i++) {
+      double err = (B_batch_1[i] - B_batch_2[i]).norm();
+      EXPECT_LT(err, 1e-6);
+    }
+  }
+
   int n_tasks_{0};
   double h_{0.1};
   MatrixXd u_batch_, x_batch_;
@@ -109,6 +129,7 @@ protected:
 };
 
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamics) {
+  SetUpPlanarHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
       q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
                                          GradientMode::kNone);
@@ -128,6 +149,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamics) {
 }
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradient) {
+  SetUpPlanarHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
   q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
                                      GradientMode::kBOnly);
@@ -143,12 +165,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradient) {
   CompareXNext(x_next_batch_parallel, x_next_batch_serial);
 
   // B.
-  EXPECT_EQ(n_tasks_, B_batch_parallel.size());
-  EXPECT_EQ(n_tasks_, B_batch_serial.size());
-  for (int i = 0; i < n_tasks_; i++) {
-    double err = (B_batch_serial[i] - B_batch_parallel[i]).norm();
-    EXPECT_LT(err, 1e-6);
-  }
+  CompareB(B_batch_parallel, B_batch_serial);
 }
 
 

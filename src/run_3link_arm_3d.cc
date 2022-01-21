@@ -52,7 +52,7 @@ int main() {
       {idx_r, Vector3d(M_PI / 2, -M_PI / 2, -M_PI / 2)},
   };
 
-  const int n_tasks = 1201;
+  const int n_tasks = 12001;
 
   auto q_sim_batch = BatchQuasistaticSimulator(
       kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
@@ -67,8 +67,8 @@ int main() {
 
   cout << "==Time single-thread execution==" << endl;
   auto t_start = std::chrono::steady_clock::now();
-  auto x_next2 = q_sim_batch.CalcDynamicsSingleThread(x_batch, u_batch, 0.1,
-                                                      GradientMode::kNone);
+  auto result1 = q_sim_batch.CalcDynamicsSingleThread(x_batch, u_batch, 0.1,
+                                                      GradientMode::kBOnly);
   auto t_end = std::chrono::steady_clock::now();
   cout << "wall time ms serial: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
@@ -79,8 +79,8 @@ int main() {
 
   cout << "==Time batch execution==" << endl;
   t_start = std::chrono::steady_clock::now();
-  auto x_next = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1,
-                                                 GradientMode::kNone);
+  auto result2 = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1,
+                                                 GradientMode::kBOnly);
   t_end = std::chrono::steady_clock::now();
   cout << "wall time ms parallel: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
