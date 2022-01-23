@@ -105,9 +105,9 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
     if (gradient_mode == GradientMode::kBOnly) {
       B_list.emplace_back(batch_sizes[i]);
       auto &B_batch = B_list.back();
-      std::for_each(B_batch.begin(), B_batch.end(),
-                    [n_q, n_u](Eigen::MatrixXd &A) { A = MatrixXd::Zero(n_q,
-                                                                       n_u); });
+      std::for_each(
+          B_batch.begin(), B_batch.end(),
+          [n_q, n_u](Eigen::MatrixXd &A) { A = MatrixXd::Zero(n_q, n_u); });
     }
 
     is_valid_list.emplace_back(batch_sizes[i]);
@@ -192,11 +192,11 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
  */
 std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
-    const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
-    double h, double std_u, int n_samples) {
-//  if (seed.has_value()) {
-//    gen_.seed(seed.value());
-//  }
+    const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
+    int n_samples) {
+  //  if (seed.has_value()) {
+  //    gen_.seed(seed.value());
+  //  }
   const int T = u_trj.rows();
   DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
 
@@ -205,19 +205,19 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
 
   MatrixXd x_batch(T * n_samples, n_x);
   MatrixXd u_batch(T * n_samples, n_u);
-  std::normal_distribution<> d{0,std_u};
+  std::normal_distribution<> d{0, std_u};
   for (int t = 0; t < T; t++) {
     int i_start = t * n_samples;
     for (int i = 0; i < n_samples; i++) {
       x_batch.row(i_start + i) = x_trj.row(t);
-      for (int j = 0; j < n_u; j++) {
-        u_batch(i_start + i, j) = u_trj(t, j) + d(gen_);
-      }
+      u_batch.row(i_start + i) =
+          u_trj.row(t) +
+          MatrixXd::NullaryExpr(1, n_u, [&]() { return d(gen_); });
     }
   }
 
-  auto [x_next_batch, B_batch, is_valid_batch] = CalcDynamicsParallel(
-      x_batch, u_batch, h, GradientMode::kBOnly);
+  auto [x_next_batch, B_batch, is_valid_batch] =
+      CalcDynamicsParallel(x_batch, u_batch, h, GradientMode::kBOnly);
 
   std::vector<MatrixXd> B_bundled;
   for (int t = 0; t < T; t++) {
