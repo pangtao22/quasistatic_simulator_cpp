@@ -44,6 +44,11 @@ public:
                        const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                        double h, GradientMode gradient_mode) const;
 
+  std::vector<Eigen::MatrixXd> CalcBundledB(
+      const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+      const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
+      double h, double std_u, int n_samples);
+
   size_t get_hardware_concurrency() const { return hardware_concurrency_; };
 
   QuasistaticSimulator& get_q_sim() { return *(q_sims_.begin()); };
@@ -51,4 +56,5 @@ public:
 private:
   const size_t hardware_concurrency_{0};
   mutable std::list<QuasistaticSimulator> q_sims_;
+  std::mt19937 gen_;
 };

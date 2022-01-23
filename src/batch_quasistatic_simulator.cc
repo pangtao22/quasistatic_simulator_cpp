@@ -15,6 +15,9 @@ BatchQuasistaticSimulator::BatchQuasistaticSimulator(
     const std::unordered_map<std::string, std::string> &object_sdf_paths,
     QuasistaticSimParameters sim_params)
     : hardware_concurrency_(std::thread::hardware_concurrency()) {
+  std::random_device rd;
+  gen_.seed(rd());
+
   for (int i = 0; i < hardware_concurrency_; i++) {
     q_sims_.emplace_back(model_directive_path, robot_stiffness_str,
                          object_sdf_paths, sim_params);
@@ -181,4 +184,57 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
   }
 
   return {x_next_batch, B_batch, is_valid_batch};
+}
+
+/*
+ * x_trj: (T + 1, dim_x)
+ * u_trj: (T, dim_u)
+ */
+std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
+    const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+    const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
+    double h, double std_u, int n_samples) {
+//  if (seed.has_value()) {
+//    gen_.seed(seed.value());
+//  }
+  const int T = u_trj.rows();
+  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
+
+  const int n_x = x_trj.cols();
+  const int n_u = u_trj.cols();
+
+  MatrixXd x_batch(T * n_samples, n_x);
+  MatrixXd u_batch(T * n_samples, n_u);
+  std::normal_distribution<> d{0,std_u};
+  for (int t = 0; t < T; t++) {
+    int i_start = t * n_samples;
+    for (int i = 0; i < n_samples; i++) {
+      x_batch.row(i_start + i) = x_trj.row(t);
+      for (int j = 0; j < n_u; j++) {
+        u_batch(i_start + i, j) = u_trj(t, j) + d(gen_);
+      }
+    }
+  }
+
+  auto [x_next_batch, B_batch, is_valid_batch] = CalcDynamicsParallel(
+      x_batch, u_batch, h, GradientMode::kBOnly);
+
+  std::vector<MatrixXd> B_bundled;
+  for (int t = 0; t < T; t++) {
+    int i_start = t * n_samples;
+    int n_valid_samples = 0;
+    B_bundled.emplace_back(n_x, n_u);
+    B_bundled.back().setZero();
+
+    for (int i = 0; i < n_samples; i++) {
+      if (is_valid_batch[i_start + i]) {
+        n_valid_samples++;
+        B_bundled.back() += B_batch[i_start + i];
+      }
+    }
+
+    B_bundled.back() /= n_valid_samples;
+  }
+
+  return B_bundled;
 }
