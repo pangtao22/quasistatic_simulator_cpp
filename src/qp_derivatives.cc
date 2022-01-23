@@ -9,13 +9,14 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 void QpDerivativesBase::check_solution_error(double error) {
-  is_solution_valid_ = error < tol_;
+  is_solution_exact_ = error < tol_;
 
   if (std::isnan(error)) {
     throw std::runtime_error("Gradient is nan.");
+
   }
 
-//  if (not is_solution_valid_) {
+//  if (not is_solution_exact_) {
 //    std::stringstream ss;
 //    ss << "bad gradient. |Ax - b| norm is " << error << ". Tolerance is "
 //       << tol_ << ".";

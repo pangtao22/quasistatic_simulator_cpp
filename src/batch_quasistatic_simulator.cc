@@ -1,5 +1,6 @@
 #include <future>
 #include <mutex>
+#include <spdlog/spdlog.h>
 
 #include "batch_quasistatic_simulator.h"
 
@@ -137,6 +138,7 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
           is_valid_t[i] = true;
         } catch (std::runtime_error &err) {
           is_valid_t[i] = false;
+          spdlog::warn(err.what());
         }
       }
     };
