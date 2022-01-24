@@ -1,5 +1,6 @@
 #include <future>
 #include <mutex>
+#include <queue>
 #include <spdlog/spdlog.h>
 
 #include "batch_quasistatic_simulator.h"
@@ -35,6 +36,33 @@ VectorXd BatchQuasistaticSimulator::CalcDynamics(
               q_sim->get_sim_params().contact_detection_tolerance,
               gradient_mode, true);
   return q_sim->GetMbpPositionsAsVec();
+}
+
+Eigen::MatrixXd BatchQuasistaticSimulator::CalcBundledB(
+    QuasistaticSimulator *q_sim, const Eigen::Ref<const Eigen::VectorXd> &q,
+    const Eigen::Ref<const Eigen::VectorXd> &u, double h, double std_u,
+    int n_samples, std::mt19937 &gen) {
+  const auto n_q = q.size();
+  const auto n_u = u.size();
+  MatrixXd B_bundled(n_q, n_u);
+  B_bundled.setZero();
+
+  std::normal_distribution<> d{0, std_u};
+  int n_valid = 0;
+  for (int i = 0; i < n_samples; i++) {
+    VectorXd u_new =
+        u + MatrixXd::NullaryExpr(n_u, 1, [&]() { return d(gen); });
+    try {
+      CalcDynamics(q_sim, q, u_new, h, GradientMode::kBOnly);
+      B_bundled += q_sim->get_Dq_nextDqa_cmd();
+      n_valid++;
+    } catch (std::runtime_error &err) {
+      spdlog::warn(err.what());
+    }
+  }
+  B_bundled /= n_valid;
+
+  return B_bundled;
 }
 
 std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
@@ -190,7 +218,7 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
  * x_trj: (T + 1, dim_x)
  * u_trj: (T, dim_u)
  */
-std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
+std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
     int n_samples) {
@@ -198,7 +226,7 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
   //    gen_.seed(seed.value());
   //  }
   const int T = u_trj.rows();
-  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
+  //  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
 
   const int n_x = x_trj.cols();
   const int n_u = u_trj.cols();
@@ -237,4 +265,56 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledB(
   }
 
   return B_bundled;
+}
+
+std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
+    const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+    const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
+    int n_samples) {
+
+  const size_t T = u_trj.rows();
+  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
+
+  const auto n_threads = std::min(hardware_concurrency_, T);
+  // Allocate tasks to threads.
+  std::vector<std::vector<size_t>> t_per_thread(n_threads);
+  for (int t = 0; t < T; t++) {
+    t_per_thread[t % n_threads].push_back(t);
+  }
+
+  // Allocate storage for results.
+  std::vector<MatrixXd> B_batch(T);
+  const auto n_q = x_trj.cols();
+  const auto n_u = u_trj.cols();
+  for (auto &B : B_batch) {
+    B.resize(n_q, n_u);
+  }
+
+  // Launch threads.
+  std::list<std::future<void>> operations;
+  auto q_sim_iter = q_sims_.begin();
+  for (int i_thrd = 0; i_thrd < n_threads; i_thrd++) {
+    auto calc_B_bundled = [&q_sim = *q_sim_iter, &x_trj = std::as_const(x_trj),
+                           &u_trj = std::as_const(u_trj),
+                           &t_per_thread = std::as_const(t_per_thread[i_thrd]),
+                           &B_batch,
+                           std_u, n_samples, h] {
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      for (const auto t : t_per_thread) {
+        B_batch[t] = CalcBundledB(&q_sim, x_trj.row(t), u_trj.row(t), h,
+                                  std_u, n_samples, gen);
+      }
+    };
+
+    operations.emplace_back(std::async(std::launch::async,
+                                       std::move(calc_B_bundled)));
+    q_sim_iter++;
+  }
+
+  for (auto& op : operations) {
+    op.get();
+  }
+
+  return B_batch;
 }

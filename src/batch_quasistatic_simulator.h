@@ -17,6 +17,12 @@ public:
                const Eigen::Ref<const Eigen::VectorXd> &u, double h,
                const GradientMode gradient_mode);
 
+  static Eigen::MatrixXd
+  CalcBundledB(QuasistaticSimulator *q_sim,
+               const Eigen::Ref<const Eigen::VectorXd> &q,
+               const Eigen::Ref<const Eigen::VectorXd> &u, double h, double
+               std_u, int n_samples, std::mt19937& gen);
+
   std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
   CalcDynamicsSingleThread(
       const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
@@ -44,7 +50,12 @@ public:
                        const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                        double h, GradientMode gradient_mode) const;
 
-  std::vector<Eigen::MatrixXd> CalcBundledB(
+  std::vector<Eigen::MatrixXd> CalcBundledBTrj(
+      const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+      const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
+      double h, double std_u, int n_samples);
+
+  std::vector<Eigen::MatrixXd> CalcBundledBTrjDirect(
       const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
       double h, double std_u, int n_samples);

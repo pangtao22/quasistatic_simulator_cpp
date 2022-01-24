@@ -15,13 +15,6 @@ void QpDerivativesBase::check_solution_error(double error) {
     throw std::runtime_error("Gradient is nan.");
 
   }
-
-//  if (not is_solution_exact_) {
-//    std::stringstream ss;
-//    ss << "bad gradient. |Ax - b| norm is " << error << ". Tolerance is "
-//       << tol_ << ".";
-//    spdlog::warn(ss.str());
-//  }
 }
 
 void QpDerivatives::UpdateProblem(

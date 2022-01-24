@@ -88,7 +88,8 @@ PYBIND11_MODULE(qsim_cpp, m) {
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
         .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
-        .def("calc_bundled_B", &Class::CalcBundledB)
+        .def("calc_bundled_B_trj", &Class::CalcBundledBTrj)
+        .def("calc_bundled_B_trj_direct", &Class::CalcBundledBTrjDirect)
         .def("get_hardware_concurrency", &Class::get_hardware_concurrency);
   }
 }
