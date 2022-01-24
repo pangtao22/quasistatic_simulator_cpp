@@ -68,7 +68,7 @@ int main() {
 
   auto t_start = std::chrono::steady_clock::now();
   auto result1 = q_sim_batch.CalcBundledBTrj(x_batch, u_batch, 0.1, 0.1,
-                                             100);
+                                             100, {});
   auto t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrj wall time ms: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
@@ -78,7 +78,7 @@ int main() {
 
   t_start = std::chrono::steady_clock::now();
   auto result2 = q_sim_batch.CalcBundledBTrjDirect(x_batch, u_batch, 0.1, 0.1,
-                                             100);
+                                             100, {});
   t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrjDirect wall time ms: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -

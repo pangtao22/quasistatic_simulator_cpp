@@ -53,12 +53,12 @@ public:
   std::vector<Eigen::MatrixXd> CalcBundledBTrj(
       const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
-      double h, double std_u, int n_samples);
+      double h, double std_u, int n_samples, std::optional<int> seed);
 
   std::vector<Eigen::MatrixXd> CalcBundledBTrjDirect(
       const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
-      double h, double std_u, int n_samples);
+      double h, double std_u, int n_samples, std::optional<int> seed);
 
   size_t get_hardware_concurrency() const { return hardware_concurrency_; };
 

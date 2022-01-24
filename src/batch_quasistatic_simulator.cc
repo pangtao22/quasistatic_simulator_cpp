@@ -221,12 +221,13 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
 std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
-    int n_samples) {
-  //  if (seed.has_value()) {
-  //    gen_.seed(seed.value());
-  //  }
+    int n_samples, std::optional<int> seed) {
+  if (seed.has_value()) {
+    gen_.seed(seed.value());
+  }
+
   const int T = u_trj.rows();
-  //  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
+  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
 
   const int n_x = x_trj.cols();
   const int n_u = u_trj.cols();
@@ -270,7 +271,10 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
 std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
-    int n_samples) {
+    int n_samples, std::optional<int> seed) {
+  if (seed.has_value()) {
+    gen_.seed(seed.value());
+  }
 
   const size_t T = u_trj.rows();
   DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
@@ -283,12 +287,9 @@ std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
   }
 
   // Allocate storage for results.
-  std::vector<MatrixXd> B_batch(T);
   const auto n_q = x_trj.cols();
   const auto n_u = u_trj.cols();
-  for (auto &B : B_batch) {
-    B.resize(n_q, n_u);
-  }
+  std::vector<MatrixXd> B_batch(T, MatrixXd::Zero(n_q, n_u));
 
   // Launch threads.
   std::list<std::future<void>> operations;
