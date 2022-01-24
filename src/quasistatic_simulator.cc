@@ -91,8 +91,6 @@ QuasistaticSimulator::QuasistaticSimulator(
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
       solver_(std::make_unique<drake::solvers::GurobiSolver>()) {
-  solver_options_.SetOption(drake::solvers::GurobiSolver::id(), "Threads", 0);
-
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
