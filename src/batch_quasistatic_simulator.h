@@ -55,7 +55,6 @@ public:
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
       double h, double std_u, int n_samples, std::optional<int> seed);
 
-
   /*
    * Implements multi-threaded computation of bundled gradient based on drake's
    * Monte-Carlo simulation:

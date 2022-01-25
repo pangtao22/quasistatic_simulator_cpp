@@ -51,8 +51,8 @@ protected:
         {robot_l_name, Kp}, {robot_r_name, Kp}};
 
     const string object_name("sphere");
-    std::unordered_map<string, string> object_sdf_dict = {{object_name,
-                                                           kObjectSdfPath}};
+    std::unordered_map<string, string> object_sdf_dict = {
+        {object_name, kObjectSdfPath}};
 
     q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
         kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
@@ -93,8 +93,8 @@ protected:
         {robot_name, Kp}};
 
     const string object_name("sphere");
-    std::unordered_map<string, string> object_sdf_dict = {{object_name,
-                                                           kObjectSdfPath}};
+    std::unordered_map<string, string> object_sdf_dict = {
+        {object_name, kObjectSdfPath}};
 
     q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
         kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
@@ -110,12 +110,10 @@ protected:
 
     VectorXd q_a0(n_qa);
     q_a0 << 0.03501504, 0.75276565, 0.74146232, 0.83261002, 0.63256269,
-        1.02378254, 0.64089555, 0.82444782, -0.1438725, 0.74696812,
-        0.61908827, 0.70064279, -0.06922541, 0.78533142, 0.82942863,
-        0.90415436;
+        1.02378254, 0.64089555, 0.82444782, -0.1438725, 0.74696812, 0.61908827,
+        0.70064279, -0.06922541, 0.78533142, 0.82942863, 0.90415436;
 
-    ModelInstanceIndexToVecMap q0_dict = {{idx_o, q_u0},
-                                          {idx_r, q_a0}};
+    ModelInstanceIndexToVecMap q0_dict = {{idx_o, q_u0}, {idx_r, q_a0}};
 
     VectorXd q0 = q_sim.GetQFromQdict(q0_dict);
     VectorXd u0 = q_sim.GetQaCmdFromQaCmdDict(q0_dict);
@@ -180,8 +178,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
                                          GradientMode::kNone);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                   GradientMode::kNone);
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kNone);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -196,12 +194,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
   SetUpAllegroHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-  q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                     GradientMode::kNone);
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kNone);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                   GradientMode::kNone);
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kNone);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -220,8 +218,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
                                          GradientMode::kBOnly);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                   GradientMode::kBOnly);
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kBOnly);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -236,12 +234,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   SetUpAllegroHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-  q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                     GradientMode::kBOnly);
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kBOnly);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                   GradientMode::kBOnly);
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kBOnly);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -253,15 +251,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   CompareB(B_batch_parallel, B_batch_serial, 2e-6);
 }
 
-
 /*
  * Compare BatchQuasistaticSimulator::CalcBundledBTrjDirect against
  *        BatchQuasistaticSimulator::CalcBundledBTrj.
  * The goal is to ensure that the outcomes of these two functions are the
  * same given the same seed for the random number generator.
  */
-
-
 TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   SetUpPlanarHand();
   const int T = 5;
@@ -279,10 +274,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   x_trj.rowwise() = x_batch_.row(0);
   u_trj.rowwise() = u_batch_.row(0);
 
-  auto B_bundled1 = q_sim_batch_->CalcBundledBTrj(x_trj, u_trj, 0.1, 0.1,
-                                           n_samples, seed);
+  auto B_bundled1 =
+      q_sim_batch_->CalcBundledBTrj(x_trj, u_trj, 0.1, 0.1, n_samples, seed);
   auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(x_trj, u_trj, 0.1, 0.1,
-                                                  n_samples, seed);
+                                                        n_samples, seed);
   for (int i = 0; i < T; i++) {
     double err = (B_bundled1[i] - B_bundled2[i]).norm();
     EXPECT_LT(err, 1e-10);
