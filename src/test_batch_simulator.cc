@@ -161,7 +161,9 @@ protected:
     EXPECT_EQ(n_tasks_, B_batch_2.size());
     for (int i = 0; i < n_tasks_; i++) {
       double err = (B_batch_1[i] - B_batch_2[i]).norm();
+      double rel_err = err / B_batch_1[i].norm();
       EXPECT_LT(err, tol);
+      EXPECT_LT(rel_err, 0.01);
     }
   }
 
@@ -259,8 +261,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
  */
 TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   SetUpPlanarHand();
-  const int T = 5;
-  const int n_samples = 10;
+  const int T = 50;
+  const int n_samples = 100;
   const int seed = 1;
 
   const int n_q = q_sim_batch_->get_q_sim().get_plant().num_positions();
