@@ -20,11 +20,11 @@ public:
   static Eigen::MatrixXd
   CalcBundledB(QuasistaticSimulator *q_sim,
                const Eigen::Ref<const Eigen::VectorXd> &q,
-               const Eigen::Ref<const Eigen::VectorXd> &u, double h, double
-               std_u, int n_samples, std::mt19937& gen);
+               const Eigen::Ref<const Eigen::VectorXd> &u, double h,
+               const Eigen::Ref<const Eigen::MatrixXd> &du);
 
   std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
-  CalcDynamicsSingleThread(
+  CalcDynamicsSerial(
       const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
       const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
       const GradientMode gradient_mode);
@@ -55,6 +55,18 @@ public:
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
       double h, double std_u, int n_samples, std::optional<int> seed);
 
+
+  /*
+   * Implements multi-threaded computation of bundled gradient based on drake's
+   * Monte-Carlo simulation:
+   * https://github.com/RobotLocomotion/drake/blob/5316536420413b51871ceb4b9c1f77aedd559f71/systems/analysis/monte_carlo.cc#L42
+   * But this implementation does not seem to be faster than CalcBundledBTrj,
+   * which is again  slower than the original ZMQ-based PUSH-PULL scheme.
+   *
+   * It is a sad conclusion after almost two weeks of effort ¯\_(ツ)_/¯.
+   * Well, at least I learned more about C++ and saw quite a bit of San
+   * Francisco :)
+   */
   std::vector<Eigen::MatrixXd> CalcBundledBTrjDirect(
       const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
       const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
@@ -62,10 +74,12 @@ public:
 
   size_t get_hardware_concurrency() const { return hardware_concurrency_; };
 
-  QuasistaticSimulator& get_q_sim() { return *(q_sims_.begin()); };
+  QuasistaticSimulator& get_q_sim() { return *q_sims_.begin(); };
 
 private:
+  std::stack<int> InitializeAvailableSimulatorStack() const;
+
   const size_t hardware_concurrency_{0};
-  mutable std::list<QuasistaticSimulator> q_sims_;
+  mutable std::vector<QuasistaticSimulator> q_sims_;
   std::mt19937 gen_;
 };

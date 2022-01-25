@@ -53,6 +53,7 @@ int main() {
   };
 
   const int n_tasks = 20;
+  const int n_samples = 100;
 
   auto q_sim_batch = BatchQuasistaticSimulator(
       kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
@@ -68,7 +69,7 @@ int main() {
 
   auto t_start = std::chrono::steady_clock::now();
   auto result1 = q_sim_batch.CalcBundledBTrj(x_batch, u_batch, 0.1, 0.1,
-                                             100, {});
+                                             n_samples, 1);
   auto t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrj wall time ms: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
@@ -78,7 +79,7 @@ int main() {
 
   t_start = std::chrono::steady_clock::now();
   auto result2 = q_sim_batch.CalcBundledBTrjDirect(x_batch, u_batch, 0.1, 0.1,
-                                             100, {});
+                                                   n_samples, 1);
   t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrjDirect wall time ms: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
@@ -86,10 +87,16 @@ int main() {
            .count()
        << endl;
 
+  // Diff
+  cout << "errors" << endl;
+  for (int i = 0; i < n_tasks; i++) {
+    cout << (result1[i] - result2[i]).norm() << endl;
+  }
+
 
 //  cout << "==Time single-thread execution==" << endl;
 //  auto t_start = std::chrono::steady_clock::now();
-//  auto result1 = q_sim_batch.CalcDynamicsSingleThread(x_batch, u_batch, 0.1,
+//  auto result1 = q_sim_batch.CalcDynamicsSerial(x_batch, u_batch, 0.1,
 //                                                      GradientMode::kBOnly);
 //  auto t_end = std::chrono::steady_clock::now();
 //  cout << "wall time ms serial: "

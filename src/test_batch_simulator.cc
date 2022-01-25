@@ -180,8 +180,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
                                          GradientMode::kNone);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
-                                             GradientMode::kNone);
+  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                   GradientMode::kNone);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -200,8 +200,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
                                      GradientMode::kNone);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
-                                         GradientMode::kNone);
+  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                   GradientMode::kNone);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -220,8 +220,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
                                          GradientMode::kBOnly);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
-                                             GradientMode::kBOnly);
+  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                   GradientMode::kBOnly);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -240,8 +240,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
                                      GradientMode::kBOnly);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-  q_sim_batch_->CalcDynamicsSingleThread(x_batch_, u_batch_, h_,
-                                         GradientMode::kBOnly);
+  q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                   GradientMode::kBOnly);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
