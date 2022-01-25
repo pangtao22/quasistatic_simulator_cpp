@@ -253,6 +253,42 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   CompareB(B_batch_parallel, B_batch_serial, 2e-6);
 }
 
+
+/*
+ * Compare BatchQuasistaticSimulator::CalcBundledBTrjDirect against
+ *        BatchQuasistaticSimulator::CalcBundledBTrj.
+ * The goal is to ensure that the outcomes of these two functions are the
+ * same given the same seed for the random number generator.
+ */
+
+
+TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
+  SetUpPlanarHand();
+  const int T = 5;
+  const int n_samples = 10;
+  const int seed = 1;
+
+  const int n_q = q_sim_batch_->get_q_sim().get_plant().num_positions();
+  const int n_u = q_sim_batch_->get_q_sim().num_actuated_dofs();
+  ASSERT_EQ(n_q, x_batch_.cols());
+  ASSERT_EQ(n_u, u_batch_.cols());
+
+  MatrixXd x_trj(T + 1, n_q);
+  MatrixXd u_trj(T, n_u);
+
+  x_trj.rowwise() = x_batch_.row(0);
+  u_trj.rowwise() = u_batch_.row(0);
+
+  auto B_bundled1 = q_sim_batch_->CalcBundledBTrj(x_trj, u_trj, 0.1, 0.1,
+                                           n_samples, seed);
+  auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(x_trj, u_trj, 0.1, 0.1,
+                                                  n_samples, seed);
+  for (int i = 0; i < T; i++) {
+    double err = (B_bundled1[i] - B_bundled2[i]).norm();
+    EXPECT_LT(err, 1e-10);
+  }
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
