@@ -38,7 +38,16 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   GradientMode gradient_mode{GradientMode::kNone};
   bool gradient_from_active_constraints{true};
-  double gradient_lstsq_tolerance{1e-3};
+  /*
+   When solving for A during dynamics gradient computation, i.e.
+   A * A_inv = I_n, --------(*)
+   the relative error is defined as
+   (A_sol * A_inv - I_n) / n,
+   where A_sol is the least squares solution to (*), or the pseudo-inverse
+   of A_inv.
+   A warning is printed when the relative error is greater than this number.
+   */
+  double gradient_lstsq_tolerance{2e-2};
 };
 
 class QuasistaticSimulator {

@@ -11,13 +11,12 @@ s.t. G.dot(z) <= e
 class QpDerivativesBase {
  public:
   explicit QpDerivativesBase(double tol) : tol_(tol) {};
-  [[nodiscard]] bool is_solution_valid() const {return is_solution_exact_;};
   [[nodiscard]] const Eigen::MatrixXd& get_DzDe() const {return DzDe_;};
   [[nodiscard]] const Eigen::MatrixXd& get_DzDb() const {return DzDb_;};
  protected:
-  void check_solution_error(double error);
+  void check_solution_error(double error, int n);
   const double tol_;
-  bool is_solution_exact_{false};
+  bool is_relative_err_small_{false};
   Eigen::MatrixXd DzDe_;
   Eigen::MatrixXd DzDb_;
 };

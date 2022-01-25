@@ -336,7 +336,7 @@ std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
       auto calc_B_bundled =
           [&q_sim = q_sims_[idx_sim], &x_trj = std::as_const(x_trj),
            &u_trj = std::as_const(u_trj), &du_trj = std::as_const(du_trj),
-           &B_batch, t = n_bundled_B_dispatched, std_u, n_samples, h, idx_sim] {
+           &B_batch, t = n_bundled_B_dispatched, h, idx_sim] {
             B_batch[t] =
                 CalcBundledB(&q_sim, x_trj.row(t), u_trj.row(t), h, du_trj[t]);
             return idx_sim;
