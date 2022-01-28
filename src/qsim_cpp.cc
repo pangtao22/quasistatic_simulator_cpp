@@ -75,7 +75,12 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
         .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
         .def("get_velocity_indices", &Class::GetVelocityIndices)
-        .def("get_position_indices", &Class::GetPositionIndices);
+        .def("get_position_indices", &Class::GetPositionIndices)
+        .def("get_v_dict_from_vec", &Class::GetVdictFromVec)
+        .def("get_q_dict_from_vec", &Class::GetQDictFromVec)
+        .def("get_q_vec_from_dict", &Class::GetQVecFromDict)
+        .def("get_q_a_cmd_vec_from_dict", &Class::GetQaCmdVecFromDict)
+        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec);
   }
 
   {

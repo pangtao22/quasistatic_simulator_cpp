@@ -67,8 +67,8 @@ protected:
                                           {idx_l, Vector2d(-0.775, -0.785)},
                                           {idx_r, Vector2d(0.775, 0.785)}};
 
-    VectorXd q0 = q_sim.GetQFromQdict(q0_dict);
-    VectorXd u0 = q_sim.GetQaCmdFromQaCmdDict(q0_dict);
+    VectorXd q0 = q_sim.GetQVecFromDict(q0_dict);
+    VectorXd u0 = q_sim.GetQaCmdVecFromDict(q0_dict);
 
     SampleUBatch(u0, 0.1);
     SetXBatch(q0);
@@ -115,8 +115,8 @@ protected:
 
     ModelInstanceIndexToVecMap q0_dict = {{idx_o, q_u0}, {idx_r, q_a0}};
 
-    VectorXd q0 = q_sim.GetQFromQdict(q0_dict);
-    VectorXd u0 = q_sim.GetQaCmdFromQaCmdDict(q0_dict);
+    VectorXd q0 = q_sim.GetQVecFromDict(q0_dict);
+    VectorXd u0 = q_sim.GetQaCmdVecFromDict(q0_dict);
 
     SampleUBatch(u0, 0.1);
     SetXBatch(q0);

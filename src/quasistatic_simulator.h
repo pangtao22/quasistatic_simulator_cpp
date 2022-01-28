@@ -150,12 +150,12 @@ public:
   };
 
   ModelInstanceIndexToVecMap
-  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
+  GetVdictFromVec(const Eigen::Ref<const Eigen::VectorXd> &v) const;
 
   ModelInstanceIndexToVecMap
-  GetQdictFromQ(const Eigen::Ref<const Eigen::VectorXd> &q) const;
+  GetQDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q) const;
 
-  Eigen::VectorXd GetQFromQdict(const ModelInstanceIndexToVecMap &q_dict) const;
+  Eigen::VectorXd GetQVecFromDict(const ModelInstanceIndexToVecMap &q_dict) const;
 
   /*
    * QaCmd, sometimes denoted by u, is the concatenation of position vectors
@@ -170,9 +170,9 @@ public:
    * concatenate them into a single vector.
    */
   Eigen::VectorXd
-  GetQaCmdFromQaCmdDict(const ModelInstanceIndexToVecMap &q_a_cmd_dict) const;
+  GetQaCmdVecFromDict(const ModelInstanceIndexToVecMap &q_a_cmd_dict) const;
 
-  ModelInstanceIndexToVecMap GetQaCmdDictFromQaCmd(
+  ModelInstanceIndexToVecMap GetQaCmdDictFromVec(
       const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
 
 private:

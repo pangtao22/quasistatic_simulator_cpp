@@ -31,7 +31,7 @@ VectorXd BatchQuasistaticSimulator::CalcDynamics(
     const GradientMode gradient_mode) {
   q_sim->UpdateMbpPositions(q);
   auto tau_ext_dict = q_sim->CalcTauExt({});
-  auto q_a_cmd_dict = q_sim->GetQaCmdDictFromQaCmd(u);
+  auto q_a_cmd_dict = q_sim->GetQaCmdDictFromVec(u);
   q_sim->Step(q_a_cmd_dict, tau_ext_dict, h,
               q_sim->get_sim_params().contact_detection_tolerance,
               gradient_mode, true);
@@ -163,7 +163,6 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
           if (gradient_mode == GradientMode::kBOnly) {
             B_t[i] = q_sim.get_Dq_nextDqa_cmd();
           }
-
           is_valid_t[i] = true;
         } catch (std::runtime_error &err) {
           is_valid_t[i] = false;

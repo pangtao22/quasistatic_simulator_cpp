@@ -465,7 +465,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   const VectorXd beta_star = -mp_result_.GetDualSolution(constraints);
 
   // Update q_dict.
-  const auto v_dict = GetVdictFromV(v_star);
+  const auto v_dict = GetVdictFromVec(v_star);
   std::unordered_map<ModelInstanceIndex, VectorXd> dq_dict;
   for (const auto &model : models_all_) {
     const auto &idx_v = velocity_indices_.at(model);
@@ -530,7 +530,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   }
 }
 
-ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromV(
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(
     const Eigen::Ref<const Eigen::VectorXd> &v) const {
   DRAKE_THROW_UNLESS(v.size() == n_v_);
   std::unordered_map<ModelInstanceIndex, VectorXd> v_dict;
@@ -547,7 +547,7 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromV(
   return v_dict;
 }
 
-ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetQDictFromVec(
     const Eigen::Ref<const Eigen::VectorXd> &q) const {
   DRAKE_THROW_UNLESS(q.size() == n_q_);
   ModelInstanceIndexToVecMap q_dict;
@@ -564,7 +564,7 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQdictFromQ(
   return q_dict;
 }
 
-Eigen::VectorXd QuasistaticSimulator::GetQFromQdict(
+Eigen::VectorXd QuasistaticSimulator::GetQVecFromDict(
     const ModelInstanceIndexToVecMap &q_dict) const {
   VectorXd q(n_q_);
   for (const auto &model : models_all_) {
@@ -577,7 +577,7 @@ Eigen::VectorXd QuasistaticSimulator::GetQFromQdict(
   return q;
 }
 
-Eigen::VectorXd QuasistaticSimulator::GetQaCmdFromQaCmdDict(
+Eigen::VectorXd QuasistaticSimulator::GetQaCmdVecFromDict(
     const ModelInstanceIndexToVecMap &q_a_cmd_dict) const {
   int i_start = 0;
   VectorXd q_a_cmd(n_v_a_);
@@ -590,7 +590,7 @@ Eigen::VectorXd QuasistaticSimulator::GetQaCmdFromQaCmdDict(
   return q_a_cmd;
 }
 
-ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromQaCmd(
+ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
     const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const {
   ModelInstanceIndexToVecMap q_a_cmd_dict;
   int i_start = 0;
