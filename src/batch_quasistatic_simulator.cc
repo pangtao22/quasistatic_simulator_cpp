@@ -14,12 +14,12 @@ BatchQuasistaticSimulator::BatchQuasistaticSimulator(
     const std::string &model_directive_path,
     const std::unordered_map<std::string, Eigen::VectorXd> &robot_stiffness_str,
     const std::unordered_map<std::string, std::string> &object_sdf_paths,
-    QuasistaticSimParameters sim_params)
-    : hardware_concurrency_(std::thread::hardware_concurrency()) {
+    const QuasistaticSimParameters &sim_params)
+    : num_max_parallel_executions(std::thread::hardware_concurrency()) {
   std::random_device rd;
   gen_.seed(rd());
 
-  for (int i = 0; i < hardware_concurrency_; i++) {
+  for (int i = 0; i < num_max_parallel_executions; i++) {
     q_sims_.emplace_back(model_directive_path, robot_stiffness_str,
                          object_sdf_paths, sim_params);
   }
@@ -67,7 +67,7 @@ std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
 BatchQuasistaticSimulator::CalcDynamicsSerial(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
-    const GradientMode gradient_mode) {
+    const GradientMode gradient_mode) const {
   DRAKE_THROW_UNLESS(gradient_mode != GradientMode::kAB);
 
   const size_t n_tasks = x_batch.rows();
@@ -110,7 +110,7 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
   // Compute number of threads and batch size for each thread.
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
-  const auto n_threads = std::min(hardware_concurrency_, n_tasks);
+  const auto n_threads = std::min(num_max_parallel_executions, n_tasks);
   const size_t batch_size = n_tasks / n_threads;
   std::vector<size_t> batch_sizes(n_threads);
   for (int i = 0; i < n_threads - 1; i++) {
@@ -218,7 +218,7 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
 std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
-    int n_samples, std::optional<int> seed) {
+    int n_samples, std::optional<int> seed) const {
   if (seed.has_value()) {
     gen_.seed(seed.value());
   }
@@ -276,7 +276,7 @@ template <typename T> bool IsFutureReady(const std::future<T> &future) {
 std::stack<int>
 BatchQuasistaticSimulator::InitializeAvailableSimulatorStack() const {
   std::stack<int> available_sims;
-  for (int i = 0; i < hardware_concurrency_; i++) {
+  for (int i = 0; i < num_max_parallel_executions; i++) {
     available_sims.push(i);
   }
   return available_sims;
@@ -285,7 +285,7 @@ BatchQuasistaticSimulator::InitializeAvailableSimulatorStack() const {
 std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h, double std_u,
-    int n_samples, std::optional<int> seed) {
+    int n_samples, std::optional<int> seed) const {
   if (seed.has_value()) {
     gen_.seed(seed.value());
   }
@@ -293,7 +293,7 @@ std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
   // Determine the number of threads.
   const size_t T = u_trj.rows();
   DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
-  const auto n_threads = std::min(hardware_concurrency_, T);
+  const auto n_threads = std::min(num_max_parallel_executions, T);
 
   // Allocate storage for results.
   const auto n_q = x_trj.cols();
