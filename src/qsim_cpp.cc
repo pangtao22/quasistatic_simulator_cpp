@@ -3,16 +3,16 @@
 #include <pybind11/stl.h>
 
 #include "quasistatic_simulator.h"
+#include "batch_quasistatic_simulator.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(qsim_cpp, m) {
+  py::enum_<GradientMode>(m, "GradientMode")
+      .value("kNone", GradientMode::kNone)
+      .value("kBOnly", GradientMode::kBOnly)
+      .value("kAB", GradientMode::kAB);
   {
-    py::enum_<GradientMode>(m, "GradientMode")
-        .value("kNone", GradientMode::kNone)
-        .value("kBOnly", GradientMode::kBOnly)
-        .value("kAB", GradientMode::kAB);
-
     using Class = QuasistaticSimParameters;
     py::class_<Class>(m, "QuasistaticSimParametersCpp")
         .def(py::init<>())
@@ -37,7 +37,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
                       QuasistaticSimParameters>(),
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
-        .def("update_mbp_positions", &Class::UpdateMbpPositions)
+        .def("update_mbp_positions",
+             py::overload_cast<const ModelInstanceIndexToVecMap &>(
+                 &Class::UpdateMbpPositions))
         .def("get_mbp_positions", &Class::GetMbpPositions)
         .def("get_positions", &Class::GetPositions)
         .def("step",
@@ -73,6 +75,29 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_Dq_nextDq", &Class::get_Dq_nextDq)
         .def("get_Dq_nextDqa_cmd", &Class::get_Dq_nextDqa_cmd)
         .def("get_velocity_indices", &Class::GetVelocityIndices)
-        .def("get_position_indices", &Class::GetPositionIndices);
+        .def("get_position_indices", &Class::GetPositionIndices)
+        .def("get_v_dict_from_vec", &Class::GetVdictFromVec)
+        .def("get_q_dict_from_vec", &Class::GetQDictFromVec)
+        .def("get_q_vec_from_dict", &Class::GetQVecFromDict)
+        .def("get_q_a_cmd_vec_from_dict", &Class::GetQaCmdVecFromDict)
+        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec);
+  }
+
+  {
+    using Class = BatchQuasistaticSimulator;
+    py::class_<Class>(m, "BatchQuasistaticSimulator")
+        .def(py::init<std::string,
+                      const std::unordered_map<std::string, Eigen::VectorXd> &,
+                      const std::unordered_map<std::string, std::string> &,
+                      QuasistaticSimParameters>(),
+             py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
+             py::arg("object_sdf_paths"), py::arg("sim_params"))
+        .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
+        .def("calc_bundled_B_trj", &Class::CalcBundledBTrj)
+        .def("calc_bundled_B_trj_direct", &Class::CalcBundledBTrjDirect)
+        .def("get_num_max_parallel_executions",
+             &Class::get_num_max_parallel_executions)
+        .def("set_num_max_parallel_executions",
+             &Class::set_num_max_parallel_executions);
   }
 }

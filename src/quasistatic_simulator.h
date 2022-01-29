@@ -29,7 +29,7 @@ enum class GradientMode { kNone, kBOnly, kAB };
  * into the configuration vector of the system, or those of a velocity vector
  * of a model into the velocity vector of the system.
  */
-enum class ModelIndicesMode {kQ, kV};
+enum class ModelIndicesMode { kQ, kV };
 
 struct QuasistaticSimParameters {
   Eigen::Vector3d gravity;
@@ -38,7 +38,16 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   GradientMode gradient_mode{GradientMode::kNone};
   bool gradient_from_active_constraints{true};
-  double gradient_lstsq_tolerance{1e-3};
+  /*
+   When solving for A during dynamics gradient computation, i.e.
+   A * A_inv = I_n, --------(*)
+   the relative error is defined as
+   (A_sol * A_inv - I_n) / n,
+   where A_sol is the least squares solution to (*), or the pseudo-inverse
+   of A_inv.
+   A warning is printed when the relative error is greater than this number.
+   */
+  double gradient_lstsq_tolerance{2e-2};
 };
 
 class QuasistaticSimulator {
@@ -51,8 +60,12 @@ public:
       QuasistaticSimParameters sim_params);
 
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
+  void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
+  [[nodiscard]] Eigen::VectorXd GetMbpPositionsAsVec() const {
+    return plant_->GetPositions(*context_plant_);
+  }
 
   Eigen::VectorXd
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
@@ -95,6 +108,10 @@ public:
     return models_unactuated_;
   };
 
+  [[nodiscard]] const QuasistaticSimParameters &get_sim_params() const {
+    return sim_params_;
+  }
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };
@@ -132,6 +149,32 @@ public:
     return position_indices_;
   };
 
+  ModelInstanceIndexToVecMap
+  GetVdictFromVec(const Eigen::Ref<const Eigen::VectorXd> &v) const;
+
+  ModelInstanceIndexToVecMap
+  GetQDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q) const;
+
+  Eigen::VectorXd GetQVecFromDict(const ModelInstanceIndexToVecMap &q_dict) const;
+
+  /*
+   * QaCmd, sometimes denoted by u, is the concatenation of position vectors
+   * for all models in this->models_actuated_, which is sorted in ascending
+   * order.
+   * They keys of q_a_cmd_dict does not need to be the same as
+   * this->models_actuated. It only needs to be a superset of
+   * this->models_actuated. This means that it is possible to pass in a
+   * dictionary containing position vectors for all model instances in the
+   * system, including potentially position vectors of un-actuated models,
+   * and this method will extract the actuated position vectors and
+   * concatenate them into a single vector.
+   */
+  Eigen::VectorXd
+  GetQaCmdVecFromDict(const ModelInstanceIndexToVecMap &q_a_cmd_dict) const;
+
+  ModelInstanceIndexToVecMap GetQaCmdDictFromVec(
+      const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
+
 private:
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
@@ -165,12 +208,10 @@ private:
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
                     const double h, Eigen::MatrixXd *Q_ptr,
                     Eigen::VectorXd *tau_h_ptr) const;
-  std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>
-  GetVdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const double h,
-                           const ModelInstanceIndexToVecMap& q_dict) const;
+                           const ModelInstanceIndexToVecMap &q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,
@@ -184,6 +225,7 @@ private:
   // QP solver.
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
+  drake::solvers::SolverOptions solver_options_;
 
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.

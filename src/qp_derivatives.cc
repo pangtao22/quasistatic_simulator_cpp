@@ -1,6 +1,6 @@
 #include <iostream>
+#include <cmath>
 #include <sstream>
-
 #include <spdlog/spdlog.h>
 
 #include "qp_derivatives.h"
@@ -8,13 +8,17 @@
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-void QpDerivativesBase::check_solution_error(double error) {
-  is_solution_valid_ = error < tol_;
-  if (not is_solution_valid_) {
+void QpDerivativesBase::check_solution_error(double error, int n) {
+  auto rel_err = error / n;
+  is_relative_err_small_ = rel_err < tol_;
+
+  if (std::isnan(error)) {
+    throw std::runtime_error("Gradient is nan.");
+  }
+  if (!is_relative_err_small_) {
     std::stringstream ss;
-    ss << "bad gradient. |Ax - b| norm is " << error << ". Tolerance is "
-       << tol_ << ".";
-    spdlog::warn(ss.str());
+    ss << "Relative error " << rel_err << " is greater than " << tol_ << ".";
+    throw std::runtime_error(ss.str());
   }
 }
 
@@ -40,7 +44,7 @@ void QpDerivatives::UpdateProblem(
   rhs.topRightCorner(n_z, n_z).diagonal().setConstant(-1);
 
   MatrixXd sol = A_inv.colPivHouseholderQr().solve(rhs);
-  check_solution_error((A_inv * sol - rhs).norm());
+  check_solution_error((A_inv * sol - rhs).norm(), n_z + n_l);
 
   DzDe_ = sol.topLeftCorner(n_z, n_l);
   DzDb_ = sol.topRightCorner(n_z, n_z);
@@ -87,7 +91,7 @@ void QpDerivativesActive::UpdateProblem(
   const MatrixXd A =
       A_inv.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(I);
 
-  check_solution_error((A_inv * A - I).norm());
+  check_solution_error((A_inv * A - I).norm(), n_z + n_l);
 
   DzDb_ = -A.topLeftCorner(n_z, n_z);
 

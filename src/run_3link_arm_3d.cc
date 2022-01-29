@@ -1,5 +1,8 @@
+#include <chrono>
+
 #include "get_model_paths.h"
 #include "quasistatic_simulator.h"
+#include "batch_quasistatic_simulator.h"
 
 using Eigen::Vector2d;
 using Eigen::Vector3d;
@@ -49,9 +52,70 @@ int main() {
       {idx_r, Vector3d(M_PI / 2, -M_PI / 2, -M_PI / 2)},
   };
 
-  q_sim.UpdateMbpPositions(q0_dict);
-  ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
-  q_sim.Step(q0_dict, tau_ext_dict, 0.1);
+  const int n_tasks = 20;
+  const int n_samples = 100;
+
+  auto q_sim_batch = BatchQuasistaticSimulator(
+      kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
+
+  MatrixXd x_batch(n_tasks + 1, 10);
+  MatrixXd u_batch(n_tasks, 3);
+  for (int i = 0; i < n_tasks; i++) {
+    x_batch.row(i).head(3) = q0_dict[idx_r];
+    x_batch.row(i).tail(7) = q0_dict[idx_o];
+    u_batch.row(i) = q0_dict[idx_r];
+  }
+  x_batch.row(n_tasks) = x_batch.row(0);
+
+  auto t_start = std::chrono::steady_clock::now();
+  auto result1 = q_sim_batch.CalcBundledBTrj(x_batch, u_batch, 0.1, 0.1,
+                                             n_samples, 1);
+  auto t_end = std::chrono::steady_clock::now();
+  cout << "CalcBundledBTrj wall time ms: "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
+           t_start)
+           .count()
+       << endl;
+
+  t_start = std::chrono::steady_clock::now();
+  auto result2 = q_sim_batch.CalcBundledBTrjDirect(x_batch, u_batch, 0.1, 0.1,
+                                                   n_samples, 1);
+  t_end = std::chrono::steady_clock::now();
+  cout << "CalcBundledBTrjDirect wall time ms: "
+       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
+           t_start)
+           .count()
+       << endl;
+
+  // Diff
+  cout << "errors" << endl;
+  for (int i = 0; i < n_tasks; i++) {
+    cout << (result1[i] - result2[i]).norm() << endl;
+  }
+
+
+//  cout << "==Time single-thread execution==" << endl;
+//  auto t_start = std::chrono::steady_clock::now();
+//  auto result1 = q_sim_batch.CalcDynamicsSerial(x_batch, u_batch, 0.1,
+//                                                      GradientMode::kBOnly);
+//  auto t_end = std::chrono::steady_clock::now();
+//  cout << "wall time ms serial: "
+//       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
+//           t_start)
+//           .count()
+//       << endl;
+//
+//
+//  cout << "==Time batch execution==" << endl;
+//  t_start = std::chrono::steady_clock::now();
+//  auto result2 = q_sim_batch.CalcDynamicsParallel(x_batch, u_batch, 0.1,
+//                                                 GradientMode::kBOnly);
+//  t_end = std::chrono::steady_clock::now();
+//  cout << "wall time ms parallel: "
+//       << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
+//           t_start)
+//           .count()
+//       << endl;
 
   return 0;
 }
