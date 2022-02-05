@@ -100,6 +100,24 @@ BatchQuasistaticSimulator::CalcDynamicsSerial(
   return {x_next_batch, B_batch, is_valid_batch};
 }
 
+std::vector<size_t> BatchQuasistaticSimulator::CalcBatchSizes(
+    size_t n_tasks, size_t n_threads) const {
+  /*
+   * batch_size is such that the first (n_threads - 1) threads have at least
+   * as many tasks as the last thread.
+   */
+  const auto batch_size = static_cast<size_t>(
+      std::ceil(n_tasks / static_cast<double>(n_threads)));
+
+  std::vector<size_t> batch_sizes(n_threads);
+  for (int i = 0; i < n_threads - 1; i++) {
+    batch_sizes[i] = batch_size;
+  }
+  batch_sizes[n_threads - 1] = n_tasks - (n_threads - 1) * batch_size;
+
+  return batch_sizes;
+}
+
 std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
 BatchQuasistaticSimulator::CalcDynamicsParallel(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
@@ -111,12 +129,7 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
   const auto n_threads = std::min(num_max_parallel_executions, n_tasks);
-  const size_t batch_size = n_tasks / n_threads;
-  std::vector<size_t> batch_sizes(n_threads);
-  for (int i = 0; i < n_threads - 1; i++) {
-    batch_sizes[i] = batch_size;
-  }
-  batch_sizes[n_threads - 1] = n_tasks - (n_threads - 1) * batch_size;
+  const auto batch_sizes = CalcBatchSizes(n_tasks, n_threads);
 
   // Allocate storage for results.
   const auto n_q = x_batch.cols();
@@ -182,14 +195,17 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
 
   // Collect results from threads.
   // x_next;
-  int i = 0;
+  int i_thread = 0;
+  int i_start = 0;
   MatrixXd x_next_batch(n_tasks, n_q);
   x_next_iter = x_next_list.begin();
   for (auto &op : operations) {
     op.get(); // catch exceptions.
-    x_next_batch.block(i * batch_size, 0, batch_sizes[i], n_q) = *x_next_iter;
+    auto batch_size = batch_sizes[i_thread];
+    x_next_batch.block(i_start, 0, batch_size, n_q) = *x_next_iter;
 
-    i++;
+    i_start += batch_size;
+    i_thread++;
     x_next_iter++;
   }
 

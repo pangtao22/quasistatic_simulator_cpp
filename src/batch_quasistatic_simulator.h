@@ -81,6 +81,8 @@ public:
   QuasistaticSimulator &get_q_sim() const { return *q_sims_.begin(); };
 
 private:
+  std::vector<size_t> CalcBatchSizes(size_t n_tasks, size_t n_threads) const;
+
   std::stack<int> InitializeAvailableSimulatorStack() const;
   size_t num_max_parallel_executions{0};
 
