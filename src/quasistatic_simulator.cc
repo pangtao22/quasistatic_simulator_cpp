@@ -459,7 +459,9 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       v);
 
   solver_->Solve(prog, {}, solver_options_, &mp_result_);
-  DRAKE_THROW_UNLESS(mp_result_.is_success());
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
+  }
 
   const VectorXd v_star = mp_result_.GetSolution(v);
   const VectorXd beta_star = -mp_result_.GetDualSolution(constraints);
