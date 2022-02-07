@@ -13,6 +13,8 @@
 
 using ModelInstanceIndexToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
+using ModelInstanceIndexToMatrixMap =
+    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::MatrixXd>;
 using ModelInstanceNameToIndexMap =
     std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
 
@@ -38,6 +40,7 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   GradientMode gradient_mode{GradientMode::kNone};
   bool gradient_from_active_constraints{true};
+  double unactuated_mass_scale{0};
   /*
    When solving for A during dynamics gradient computation, i.e.
    A * A_inv = I_n, --------(*)
@@ -220,6 +223,9 @@ private:
   static Eigen::Matrix<double, 4, 3>
   GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
+  ModelInstanceIndexToMatrixMap
+  CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
+
   QuasistaticSimParameters sim_params_;
 
   // QP solver.
@@ -259,6 +265,7 @@ private:
   std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
       is_3d_floating_;
   ModelInstanceIndexToVecMap robot_stiffness_;
+  double min_K_a_{0};  // smallest stiffness of all joints.
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>

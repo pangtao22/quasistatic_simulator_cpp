@@ -2,8 +2,8 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "quasistatic_simulator.h"
 #include "batch_quasistatic_simulator.h"
+#include "quasistatic_simulator.h"
 
 namespace py = pybind11;
 
@@ -12,6 +12,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
       .value("kNone", GradientMode::kNone)
       .value("kBOnly", GradientMode::kBOnly)
       .value("kAB", GradientMode::kAB);
+
   {
     using Class = QuasistaticSimParameters;
     py::class_<Class>(m, "QuasistaticSimParametersCpp")
@@ -25,7 +26,8 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def_readwrite("gradient_lstsq_tolerance",
                        &Class::gradient_lstsq_tolerance)
         .def_readwrite("gradient_from_active_constraints",
-                       &Class::gradient_from_active_constraints);
+                       &Class::gradient_from_active_constraints)
+        .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale);
   }
 
   {

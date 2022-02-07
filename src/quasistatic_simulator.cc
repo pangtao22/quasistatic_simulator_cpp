@@ -165,6 +165,15 @@ QuasistaticSimulator::QuasistaticSimulator(
   dqp_ = std::make_unique<QpDerivatives>(sim_params_.gradient_lstsq_tolerance);
   dqp_active_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
+
+  // Find smallest stiffness.
+  VectorXd min_stiffness_vec(models_actuated_.size());
+  int i = 0;
+  for (const auto &model : models_actuated_) {
+    min_stiffness_vec[i] = robot_stiffness_.at(model).minCoeff();
+    i++;
+  }
+  min_K_a_ = min_stiffness_vec.minCoeff();
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -373,17 +382,18 @@ void QuasistaticSimulator::FormQAndTauH(
     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
     MatrixXd *Q_ptr, VectorXd *tau_h_ptr) const {
-  const int n_v = plant_->num_velocities();
-  MatrixXd M(n_v, n_v);
-  plant_->CalcMassMatrix(*context_plant_, &M);
-
   MatrixXd &Q = *Q_ptr;
-  Q = MatrixXd::Zero(n_v, n_v);
+  Q = MatrixXd::Zero(n_v_, n_v_);
   VectorXd &tau_h = *tau_h_ptr;
-  tau_h = VectorXd::Zero(n_v);
+  tau_h = VectorXd::Zero(n_v_);
+  ModelInstanceIndexToMatrixMap M_u_dict;
+  if (sim_params_.is_quasi_dynamic) {
+    M_u_dict = CalcScaledMassMatrix(h, sim_params_.unactuated_mass_scale);
+  }
 
   for (const auto &model : models_unactuated_) {
     const auto &idx_v = velocity_indices_.at(model);
+    const auto n_v_i = idx_v.size();
     const VectorXd &tau_ext = tau_ext_dict.at(model);
 
     for (int i = 0; i < tau_ext.size(); i++) {
@@ -391,9 +401,9 @@ void QuasistaticSimulator::FormQAndTauH(
     }
 
     if (sim_params_.is_quasi_dynamic) {
-      for (const auto i : idx_v) {
-        for (const auto j : idx_v) {
-          Q(i, j) = M(i, j);
+      for (int i = 0; i < n_v_i; i++) {
+        for (int j = 0; j < n_v_i; j++) {
+          Q(idx_v[i], idx_v[j]) = M_u_dict.at(model)(i, j);
         }
       }
     }
@@ -605,7 +615,6 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
   return q_a_cmd_dict;
 }
 
-
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const double h) {
@@ -766,4 +775,44 @@ QuasistaticSimulator::GetE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   E.row(3) << Q[2], -Q[1], Q[0];
   E *= 0.5;
   return E;
+}
+
+ModelInstanceIndexToMatrixMap
+QuasistaticSimulator::CalcScaledMassMatrix(double h,
+                                           double unactuated_mass_scale) const {
+  MatrixXd M(n_v_, n_v_);
+  plant_->CalcMassMatrix(*context_plant_, &M);
+
+  ModelInstanceIndexToMatrixMap M_u_dict;
+  for (const auto &model : models_unactuated_) {
+    const auto &idx_v_model = velocity_indices_.at(model);
+    const auto n_v_i = idx_v_model.size();
+    MatrixXd M_u(n_v_i, n_v_i);
+    for (int i = 0; i < n_v_i; i++) {
+      for (int j = 0; j < n_v_i; j++) {
+        M_u(i, j) = M(idx_v_model[i], idx_v_model[j]);
+      }
+    }
+    M_u_dict[model] = M_u;
+  }
+
+  if (unactuated_mass_scale == 0) {
+    return M_u_dict;
+  }
+
+  std::unordered_map<drake::multibody::ModelInstanceIndex, double>
+      max_eigen_value_M_u;
+  for (const auto &model : models_unactuated_) {
+    max_eigen_value_M_u[model] = M_u_dict.at(model).diagonal().maxCoeff();
+  }
+
+  const double min_K_a_h2 = min_K_a_ * h * h;
+
+  for (auto &[model, M_u] : M_u_dict) {
+    auto epsilon =
+        min_K_a_h2 / max_eigen_value_M_u[model] / unactuated_mass_scale;
+    M_u *= epsilon;
+  }
+
+  return M_u_dict;
 }
