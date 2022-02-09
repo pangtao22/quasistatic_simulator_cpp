@@ -102,18 +102,13 @@ BatchQuasistaticSimulator::CalcDynamicsSerial(
 
 std::vector<size_t> BatchQuasistaticSimulator::CalcBatchSizes(
     size_t n_tasks, size_t n_threads) const {
-  /*
-   * batch_size is such that the first (n_threads - 1) threads have at least
-   * as many tasks as the last thread.
-   */
-  const auto batch_size = static_cast<size_t>(
-      std::ceil(n_tasks / static_cast<double>(n_threads)));
+  const auto batch_size = n_tasks / n_threads;
+  std::vector<size_t> batch_sizes(n_threads, batch_size);
 
-  std::vector<size_t> batch_sizes(n_threads);
-  for (int i = 0; i < n_threads - 1; i++) {
-    batch_sizes[i] = batch_size;
+  const auto n_leftovers = n_tasks - n_threads * batch_size;
+  for (int i = 0; i < n_leftovers; i++) {
+    batch_sizes[i] += 1;
   }
-  batch_sizes[n_threads - 1] = n_tasks - (n_threads - 1) * batch_size;
 
   return batch_sizes;
 }
