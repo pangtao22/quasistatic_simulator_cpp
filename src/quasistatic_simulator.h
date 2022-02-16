@@ -40,7 +40,7 @@ struct QuasistaticSimParameters {
   bool is_quasi_dynamic;
   GradientMode gradient_mode{GradientMode::kNone};
   bool gradient_from_active_constraints{true};
-  double unactuated_mass_scale{0};
+  double unactuated_mass_scale{NAN};
   /*
    When solving for A during dynamics gradient computation, i.e.
    A * A_inv = I_n, --------(*)

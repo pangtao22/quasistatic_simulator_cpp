@@ -28,7 +28,7 @@ public:
   CalcDynamicsSerial(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
                      const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
                      const GradientMode gradient_mode,
-                     const double unactuated_mass_scale) const;
+                     std::optional<const double> unactuated_mass_scale) const;
 
   /*
    * Each row in x_batch and u_batch represent a pair of current states and
@@ -50,7 +50,7 @@ public:
   CalcDynamicsParallel(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
                        const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                        const double h, const GradientMode gradient_mode,
-                       const double unactuated_mass_scale) const;
+                       std::optional<const double> unactuated_mass_scale) const;
 
   std::vector<Eigen::MatrixXd>
   CalcBundledBTrj(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,

@@ -377,13 +377,12 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
   }
 }
 
-void QuasistaticSimulator::FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
-                                        const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                                        const ModelInstanceIndexToVecMap &tau_ext_dict,
-                                        const double h,
-                                        MatrixXd *Q_ptr,
-                                        VectorXd *tau_h_ptr,
-                                        const double unactuated_mass_scale) const {
+void QuasistaticSimulator::FormQAndTauH(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
+    MatrixXd *Q_ptr, VectorXd *tau_h_ptr,
+    const double unactuated_mass_scale) const {
   MatrixXd &Q = *Q_ptr;
   Q = MatrixXd::Zero(n_v_, n_v_);
   VectorXd &tau_h = *tau_h_ptr;
@@ -458,7 +457,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   // form Q and tau_h
   MatrixXd Q;
   VectorXd tau_h;
-  FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h, unactuated_mass_scale);
+  FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h,
+               unactuated_mass_scale);
 
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
@@ -502,7 +502,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     }
   }
 
-  if (unactuated_mass_scale < std::numeric_limits<double>::infinity()) {
+  if (unactuated_mass_scale > 0 or std::isnan(unactuated_mass_scale)) {
     for (const auto &model : models_all_) {
       auto &q_model = q_dict[model];
       q_model += dq_dict[model];
@@ -628,10 +628,8 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const double h) {
-  Step(q_a_cmd_dict, tau_ext_dict, h,
-       sim_params_.contact_detection_tolerance,
-       sim_params_.gradient_mode,
-       sim_params_.unactuated_mass_scale);
+  Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
+       sim_params_.gradient_mode, sim_params_.unactuated_mass_scale);
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
@@ -808,7 +806,7 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
     M_u_dict[model] = M_u;
   }
 
-  if (unactuated_mass_scale == 0 or unactuated_mass_scale == INFINITY) {
+  if (unactuated_mass_scale == 0 or std::isnan(unactuated_mass_scale)) {
     return M_u_dict;
   }
 

@@ -51,7 +51,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
                  &Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"),
              py::arg("contact_detection_tolerance"), py::arg("gradient_mode"),
-             py::arg("grad_from_active_constraints"))
+             py::arg("unactuated_mass_scale"))
         .def(
             "step_default",
             py::overload_cast<const ModelInstanceIndexToVecMap &,
@@ -71,6 +71,8 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_scene_graph", &Class::get_scene_graph,
              py::return_value_policy::reference_internal)
         .def("get_contact_results", &Class::get_contact_results,
+             py::return_value_policy::reference_internal)
+        .def("get_sim_params", &Class::get_sim_params,
              py::return_value_policy::reference_internal)
         .def("num_actuated_dofs", &Class::num_actuated_dofs)
         .def("num_unactuated_dofs", &Class::num_unactuated_dofs)
