@@ -77,7 +77,7 @@ public:
             const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
             const double contact_detection_tolerance,
             const GradientMode gradient_mode,
-            const bool grad_from_active_constraints);
+            const double unactuated_mass_scale);
 
   void Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
             const ModelInstanceIndexToVecMap &tau_ext_dict, const double h);
@@ -158,7 +158,8 @@ public:
   ModelInstanceIndexToVecMap
   GetQDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q) const;
 
-  Eigen::VectorXd GetQVecFromDict(const ModelInstanceIndexToVecMap &q_dict) const;
+  Eigen::VectorXd
+  GetQVecFromDict(const ModelInstanceIndexToVecMap &q_dict) const;
 
   /*
    * QaCmd, sometimes denoted by u, is the concatenation of position vectors
@@ -175,8 +176,8 @@ public:
   Eigen::VectorXd
   GetQaCmdVecFromDict(const ModelInstanceIndexToVecMap &q_a_cmd_dict) const;
 
-  ModelInstanceIndexToVecMap GetQaCmdDictFromVec(
-      const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
+  ModelInstanceIndexToVecMap
+  GetQaCmdDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
 
 private:
   [[nodiscard]] std::vector<int>
@@ -210,7 +211,8 @@ private:
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
                     const double h, Eigen::MatrixXd *Q_ptr,
-                    Eigen::VectorXd *tau_h_ptr) const;
+                    Eigen::VectorXd *tau_h_ptr,
+                    const double unactuated_mass_scale) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const double h,
@@ -265,7 +267,7 @@ private:
   std::unordered_map<drake::multibody::ModelInstanceIndex, bool>
       is_3d_floating_;
   ModelInstanceIndexToVecMap robot_stiffness_;
-  double min_K_a_{0};  // smallest stiffness of all joints.
+  double min_K_a_{0}; // smallest stiffness of all joints.
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       velocity_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>

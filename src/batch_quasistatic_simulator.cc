@@ -28,17 +28,17 @@ BatchQuasistaticSimulator::BatchQuasistaticSimulator(
 VectorXd BatchQuasistaticSimulator::CalcDynamics(
     QuasistaticSimulator *q_sim, const Eigen::Ref<const VectorXd> &q,
     const Eigen::Ref<const VectorXd> &u, double h,
-    const GradientMode gradient_mode) {
+    const GradientMode gradient_mode, const double unactuated_mass_scale) {
   q_sim->UpdateMbpPositions(q);
   auto tau_ext_dict = q_sim->CalcTauExt({});
   auto q_a_cmd_dict = q_sim->GetQaCmdDictFromVec(u);
-  q_sim->Step(q_a_cmd_dict, tau_ext_dict, h,
-              q_sim->get_sim_params().contact_detection_tolerance,
-              gradient_mode, true);
+  const auto &sp = q_sim->get_sim_params();
+  q_sim->Step(q_a_cmd_dict, tau_ext_dict, h, sp.contact_detection_tolerance,
+              gradient_mode, unactuated_mass_scale);
   return q_sim->GetMbpPositionsAsVec();
 }
 
-Eigen::MatrixXd BatchQuasistaticSimulator::CalcBundledB(
+MatrixXd BatchQuasistaticSimulator::CalcBundledB(
     QuasistaticSimulator *q_sim, const Eigen::Ref<const Eigen::VectorXd> &q,
     const Eigen::Ref<const Eigen::VectorXd> &u, double h,
     const Eigen::Ref<const Eigen::MatrixXd> &du) {
@@ -46,12 +46,14 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcBundledB(
   const auto n_u = u.size();
   MatrixXd B_bundled(n_q, n_u);
   B_bundled.setZero();
+  const auto &sp = q_sim->get_sim_params();
 
   int n_valid = 0;
   for (int i = 0; i < du.rows(); i++) {
     VectorXd u_new = u + du.row(i).transpose();
     try {
-      CalcDynamics(q_sim, q, u_new, h, GradientMode::kBOnly);
+      CalcDynamics(q_sim, q, u_new, h, GradientMode::kBOnly,
+                   sp.unactuated_mass_scale);
       B_bundled += q_sim->get_Dq_nextDqa_cmd();
       n_valid++;
     } catch (std::runtime_error &err) {
@@ -67,7 +69,8 @@ std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
 BatchQuasistaticSimulator::CalcDynamicsSerial(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
-    const GradientMode gradient_mode) const {
+    const GradientMode gradient_mode,
+    const double unactuated_mass_scale) const {
   DRAKE_THROW_UNLESS(gradient_mode != GradientMode::kAB);
 
   const size_t n_tasks = x_batch.rows();
@@ -85,8 +88,9 @@ BatchQuasistaticSimulator::CalcDynamicsSerial(
       B_batch.emplace_back(MatrixXd::Zero(n_q, n_u));
     }
     try {
-      x_next_batch.row(i) = CalcDynamics(&q_sim, x_batch.row(i), u_batch.row(i),
-                                         h, gradient_mode);
+      x_next_batch.row(i) =
+          CalcDynamics(&q_sim, x_batch.row(i), u_batch.row(i), h, gradient_mode,
+                       unactuated_mass_scale);
       if (gradient_mode == GradientMode::kBOnly) {
         B_batch.back() = q_sim.get_Dq_nextDqa_cmd();
       }
@@ -100,8 +104,9 @@ BatchQuasistaticSimulator::CalcDynamicsSerial(
   return {x_next_batch, B_batch, is_valid_batch};
 }
 
-std::vector<size_t> BatchQuasistaticSimulator::CalcBatchSizes(
-    size_t n_tasks, size_t n_threads) const {
+std::vector<size_t>
+BatchQuasistaticSimulator::CalcBatchSizes(size_t n_tasks,
+                                          size_t n_threads) {
   const auto batch_size = n_tasks / n_threads;
   std::vector<size_t> batch_sizes(n_threads, batch_size);
 
@@ -117,7 +122,8 @@ std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
 BatchQuasistaticSimulator::CalcDynamicsParallel(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch, const double h,
-    const GradientMode gradient_mode) const {
+    const GradientMode gradient_mode,
+    const double unactuated_mass_scale) const {
   DRAKE_THROW_UNLESS(gradient_mode != GradientMode::kAB);
 
   // Compute number of threads and batch size for each thread.
@@ -159,14 +165,15 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
     auto calc_dynamics_batch = [&q_sim = *q_sim_iter, &x_batch, &u_batch,
                                 &x_next_t = *x_next_iter, &B_t = *B_iter,
                                 &is_valid_t = *is_valid_iter, &batch_sizes, h,
-                                i_thread, gradient_mode] {
+                                i_thread, gradient_mode,
+                                unactuated_mass_scale] {
       const auto offset = std::accumulate(batch_sizes.begin(),
                                           batch_sizes.begin() + i_thread, 0);
       for (int i = 0; i < batch_sizes[i_thread]; i++) {
         try {
-          x_next_t.row(i) =
-              CalcDynamics(&q_sim, x_batch.row(i + offset),
-                           u_batch.row(i + offset), h, gradient_mode);
+          x_next_t.row(i) = CalcDynamics(&q_sim, x_batch.row(i + offset),
+                                         u_batch.row(i + offset), h,
+                                         gradient_mode, unactuated_mass_scale);
 
           if (gradient_mode == GradientMode::kBOnly) {
             B_t[i] = q_sim.get_Dq_nextDqa_cmd();
@@ -254,7 +261,8 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
   }
 
   auto [x_next_batch, B_batch, is_valid_batch] =
-      CalcDynamicsParallel(x_batch, u_batch, h, GradientMode::kBOnly);
+      CalcDynamicsParallel(x_batch, u_batch, h, GradientMode::kBOnly,
+                           q_sims_[0].get_sim_params().unactuated_mass_scale);
 
   std::vector<MatrixXd> B_bundled;
   for (int t = 0; t < T; t++) {
@@ -343,14 +351,15 @@ std::vector<MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
       auto idx_sim = available_sims.top();
       available_sims.pop();
 
-      auto calc_B_bundled =
-          [&q_sim = q_sims_[idx_sim], &x_trj = std::as_const(x_trj),
-           &u_trj = std::as_const(u_trj), &du_trj = std::as_const(du_trj),
-           &B_batch, t = n_bundled_B_dispatched, h, idx_sim] {
-            B_batch[t] =
-                CalcBundledB(&q_sim, x_trj.row(t), u_trj.row(t), h, du_trj[t]);
-            return idx_sim;
-          };
+      auto calc_B_bundled = [&q_sim = q_sims_[idx_sim],
+                             &x_trj = std::as_const(x_trj),
+                             &u_trj = std::as_const(u_trj),
+                             &du_trj = std::as_const(du_trj), &B_batch,
+                             t = n_bundled_B_dispatched, h, idx_sim] {
+        B_batch[t] =
+            CalcBundledB(&q_sim, x_trj.row(t), u_trj.row(t), h, du_trj[t]);
+        return idx_sim;
+      };
 
       active_operations.emplace_back(
           std::async(std::launch::async, std::move(calc_B_bundled)));

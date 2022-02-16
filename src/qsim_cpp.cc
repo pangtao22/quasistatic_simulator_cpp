@@ -47,7 +47,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("step",
              py::overload_cast<const ModelInstanceIndexToVecMap &,
                                const ModelInstanceIndexToVecMap &, const double,
-                               const double, const GradientMode, const bool>(
+                               const double, const GradientMode, const double>(
                  &Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"),
              py::arg("contact_detection_tolerance"), py::arg("gradient_mode"),

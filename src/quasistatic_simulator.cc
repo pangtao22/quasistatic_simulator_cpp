@@ -377,18 +377,20 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
   }
 }
 
-void QuasistaticSimulator::FormQAndTauH(
-    const ModelInstanceIndexToVecMap &q_dict,
-    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-    const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
-    MatrixXd *Q_ptr, VectorXd *tau_h_ptr) const {
+void QuasistaticSimulator::FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
+                                        const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                                        const ModelInstanceIndexToVecMap &tau_ext_dict,
+                                        const double h,
+                                        MatrixXd *Q_ptr,
+                                        VectorXd *tau_h_ptr,
+                                        const double unactuated_mass_scale) const {
   MatrixXd &Q = *Q_ptr;
   Q = MatrixXd::Zero(n_v_, n_v_);
   VectorXd &tau_h = *tau_h_ptr;
   tau_h = VectorXd::Zero(n_v_);
   ModelInstanceIndexToMatrixMap M_u_dict;
   if (sim_params_.is_quasi_dynamic) {
-    M_u_dict = CalcScaledMassMatrix(h, sim_params_.unactuated_mass_scale);
+    M_u_dict = CalcScaledMassMatrix(h, unactuated_mass_scale);
   }
 
   for (const auto &model : models_unactuated_) {
@@ -442,7 +444,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const double h,
                                 const double contact_detection_tolerance,
                                 const GradientMode gradient_mode,
-                                const bool grad_from_active_constraints) {
+                                const double unactuated_mass_scale) {
   auto q_dict = GetMbpPositions();
   const auto n_d = sim_params_.nd_per_contact;
 
@@ -456,7 +458,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   // form Q and tau_h
   MatrixXd Q;
   VectorXd tau_h;
-  FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h);
+  FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h, unactuated_mass_scale);
 
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
@@ -500,13 +502,21 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     }
   }
 
-  for (const auto &model : models_all_) {
-    auto &q_model = q_dict[model];
-    q_model += dq_dict[model];
+  if (unactuated_mass_scale < std::numeric_limits<double>::infinity()) {
+    for (const auto &model : models_all_) {
+      auto &q_model = q_dict[model];
+      q_model += dq_dict[model];
 
-    if (is_3d_floating_[model]) {
-      // Normalize quaternion.
-      q_model.head(4).normalize();
+      if (is_3d_floating_[model]) {
+        // Normalize quaternion.
+        q_model.head(4).normalize();
+      }
+    }
+  } else {
+    // un-actuated objects remain fixed.
+    for (const auto &model : models_actuated_) {
+      auto &q_model = q_dict[model];
+      q_model += dq_dict[model];
     }
   }
 
@@ -518,7 +528,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     return;
   } else {
     QpDerivativesBase *dqp{nullptr};
-    if (grad_from_active_constraints) {
+    if (sim_params_.gradient_from_active_constraints) {
       // TODO: the threshold for lagrange multipliers is hard-coded to 0.1N * h.
       dqp_active_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star, 0.1 * h);
       dqp = dqp_active_.get();
@@ -618,8 +628,10 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const double h) {
-  Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
-       sim_params_.gradient_mode, sim_params_.gradient_from_active_constraints);
+  Step(q_a_cmd_dict, tau_ext_dict, h,
+       sim_params_.contact_detection_tolerance,
+       sim_params_.gradient_mode,
+       sim_params_.unactuated_mass_scale);
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
@@ -796,7 +808,7 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
     M_u_dict[model] = M_u;
   }
 
-  if (unactuated_mass_scale == 0) {
+  if (unactuated_mass_scale == 0 or unactuated_mass_scale == INFINITY) {
     return M_u_dict;
   }
 

@@ -11,22 +11,24 @@ public:
       const std::unordered_map<std::string, std::string> &object_sdf_paths,
       const QuasistaticSimParameters &sim_params);
 
-  static Eigen::VectorXd
-  CalcDynamics(QuasistaticSimulator *q_sim,
-               const Eigen::Ref<const Eigen::VectorXd> &q,
-               const Eigen::Ref<const Eigen::VectorXd> &u, double h,
-               const GradientMode gradient_mode);
+  static Eigen::VectorXd CalcDynamics(QuasistaticSimulator *q_sim,
+                               const Eigen::Ref<const Eigen::VectorXd> &q,
+                               const Eigen::Ref<const Eigen::VectorXd> &u,
+                               double h,
+                               const GradientMode gradient_mode,
+                               const double unactuated_mass_scale);
 
-  static Eigen::MatrixXd
-  CalcBundledB(QuasistaticSimulator *q_sim,
-               const Eigen::Ref<const Eigen::VectorXd> &q,
-               const Eigen::Ref<const Eigen::VectorXd> &u, double h,
-               const Eigen::Ref<const Eigen::MatrixXd> &du);
+  static Eigen::MatrixXd CalcBundledB(QuasistaticSimulator *q_sim,
+                               const Eigen::Ref<const Eigen::VectorXd> &q,
+                               const Eigen::Ref<const Eigen::VectorXd> &u,
+                               double h,
+                               const Eigen::Ref<const Eigen::MatrixXd> &du);
 
   std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
   CalcDynamicsSerial(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
                      const Eigen::Ref<const Eigen::MatrixXd> &u_batch, double h,
-                     const GradientMode gradient_mode) const;
+                     const GradientMode gradient_mode,
+                     const double unactuated_mass_scale) const;
 
   /*
    * Each row in x_batch and u_batch represent a pair of current states and
@@ -47,7 +49,8 @@ public:
   std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
   CalcDynamicsParallel(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
                        const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
-                       double h, GradientMode gradient_mode) const;
+                       const double h, const GradientMode gradient_mode,
+                       const double unactuated_mass_scale) const;
 
   std::vector<Eigen::MatrixXd>
   CalcBundledBTrj(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
@@ -81,7 +84,8 @@ public:
   QuasistaticSimulator &get_q_sim() const { return *q_sims_.begin(); };
 
 private:
-  std::vector<size_t> CalcBatchSizes(size_t n_tasks, size_t n_threads) const;
+  static std::vector<size_t> CalcBatchSizes(size_t n_tasks,
+                                            size_t n_threads);
 
   std::stack<int> InitializeAvailableSimulatorStack() const;
   size_t num_max_parallel_executions{0};
