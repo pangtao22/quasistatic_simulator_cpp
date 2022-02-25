@@ -68,10 +68,11 @@ int main() {
   x_batch.row(n_tasks) = x_batch.row(0);
 
   auto t_start = std::chrono::steady_clock::now();
-  auto result1 = q_sim_batch.CalcBundledBTrj(x_batch, u_batch, 0.1, 0.1,
-                                             n_samples, 1);
+  auto result1 =
+      q_sim_batch.CalcBundledBTrjScalarStd(x_batch, u_batch, 0.1, 0.1,
+                                           n_samples, 1);
   auto t_end = std::chrono::steady_clock::now();
-  cout << "CalcBundledBTrj wall time ms: "
+  cout << "CalcBundledBTrjScalarStd wall time ms: "
        << std::chrono::duration_cast<std::chrono::milliseconds>(t_end -
            t_start)
            .count()

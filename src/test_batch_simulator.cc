@@ -176,12 +176,12 @@ protected:
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
   SetUpPlanarHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(
-          x_batch_, u_batch_, h_, GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kNone, {});
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(
-          x_batch_, u_batch_, h_, GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kNone, {});
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -196,12 +196,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
   SetUpAllegroHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(
-          x_batch_, u_batch_, h_, GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kNone, {});
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(
-          x_batch_, u_batch_, h_, GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kNone, {});
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -216,12 +216,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
   SetUpPlanarHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(
-          x_batch_, u_batch_, h_, GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kBOnly, {});
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(
-          x_batch_, u_batch_, h_, GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kBOnly, {});
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -236,12 +236,12 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   SetUpAllegroHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(
-          x_batch_, u_batch_, h_, GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
+                                         GradientMode::kBOnly, {});
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(
-          x_batch_, u_batch_, h_, GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
+                                       GradientMode::kBOnly, {});
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -255,7 +255,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
 
 /*
  * Compare BatchQuasistaticSimulator::CalcBundledBTrjDirect against
- *        BatchQuasistaticSimulator::CalcBundledBTrj.
+ *        BatchQuasistaticSimulator::CalcBundledBTrjScalarStd.
  * The goal is to ensure that the outcomes of these two functions are the
  * same given the same seed for the random number generator.
  */
@@ -276,8 +276,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   x_trj.rowwise() = x_batch_.row(0);
   u_trj.rowwise() = u_batch_.row(0);
 
-  auto B_bundled1 =
-      q_sim_batch_->CalcBundledBTrj(x_trj, u_trj, 0.1, 0.1, n_samples, seed);
+  auto B_bundled1 = q_sim_batch_->CalcBundledBTrjScalarStd(
+      x_trj, u_trj, 0.1, 0.1, n_samples, seed);
   auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(x_trj, u_trj, 0.1, 0.1,
                                                         n_samples, seed);
   for (int i = 0; i < T; i++) {

@@ -11,18 +11,16 @@ public:
       const std::unordered_map<std::string, std::string> &object_sdf_paths,
       const QuasistaticSimParameters &sim_params);
 
-  static Eigen::VectorXd CalcDynamics(QuasistaticSimulator *q_sim,
-                               const Eigen::Ref<const Eigen::VectorXd> &q,
-                               const Eigen::Ref<const Eigen::VectorXd> &u,
-                               double h,
-                               const GradientMode gradient_mode,
-                               const double unactuated_mass_scale);
+  static Eigen::VectorXd CalcDynamics(
+      QuasistaticSimulator *q_sim, const Eigen::Ref<const Eigen::VectorXd> &q,
+      const Eigen::Ref<const Eigen::VectorXd> &u, double h,
+      const GradientMode gradient_mode, const double unactuated_mass_scale);
 
-  static Eigen::MatrixXd CalcBundledB(QuasistaticSimulator *q_sim,
-                               const Eigen::Ref<const Eigen::VectorXd> &q,
-                               const Eigen::Ref<const Eigen::VectorXd> &u,
-                               double h,
-                               const Eigen::Ref<const Eigen::MatrixXd> &du);
+  static Eigen::MatrixXd
+  CalcBundledB(QuasistaticSimulator *q_sim,
+               const Eigen::Ref<const Eigen::VectorXd> &q,
+               const Eigen::Ref<const Eigen::VectorXd> &u, double h,
+               const Eigen::Ref<const Eigen::MatrixXd> &du);
 
   std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
   CalcDynamicsSerial(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
@@ -53,15 +51,26 @@ public:
                        std::optional<const double> unactuated_mass_scale) const;
 
   std::vector<Eigen::MatrixXd>
+  CalcBundledBTrjScalarStd(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+                           const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h,
+                           double std_u, int n_samples, std::optional<int> seed) const;
+
+  std::vector<Eigen::MatrixXd>
   CalcBundledBTrj(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
                   const Eigen::Ref<const Eigen::MatrixXd> &u_trj, double h,
-                  double std_u, int n_samples, std::optional<int> seed) const;
+                  const Eigen::Ref<const Eigen::VectorXd> &std_u, int n_samples,
+                  std::optional<int> seed) const;
+
+  Eigen::MatrixXd SampleGaussianMatrix(
+      int n_rows,
+      const Eigen::Ref<const Eigen::VectorXd> &mu,
+      const Eigen::Ref<const Eigen::VectorXd> &std) const;
 
   /*
    * Implements multi-threaded computation of bundled gradient based on drake's
    * Monte-Carlo simulation:
    * https://github.com/RobotLocomotion/drake/blob/5316536420413b51871ceb4b9c1f77aedd559f71/systems/analysis/monte_carlo.cc#L42
-   * But this implementation does not seem to be faster than CalcBundledBTrj,
+   * But this implementation does not seem to be faster than CalcBundledBTrjScalarStd,
    * which is again  slower than the original ZMQ-based PUSH-PULL scheme.
    *
    * It is a sad conclusion after almost two weeks of effort ¯\_(ツ)_/¯.
@@ -84,8 +93,7 @@ public:
   QuasistaticSimulator &get_q_sim() const { return *q_sims_.begin(); };
 
 private:
-  static std::vector<size_t> CalcBatchSizes(size_t n_tasks,
-                                            size_t n_threads);
+  static std::vector<size_t> CalcBatchSizes(size_t n_tasks, size_t n_threads);
 
   std::stack<int> InitializeAvailableSimulatorStack() const;
   size_t num_max_parallel_executions{0};
