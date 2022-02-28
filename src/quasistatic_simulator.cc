@@ -46,8 +46,14 @@ void CreateMbp(
       *plant, nullptr, &parser);
 
   // Objects.
-  for (const auto &[name, sdf_path] : object_sdf_paths) {
-    object_models->insert(parser.AddModelFromFile(sdf_path, name));
+  // Use a set to sort object names.
+  std::set<std::string> object_names;
+  for (const auto& item : object_sdf_paths) {
+    object_names.insert(item.first);
+  }
+  for (const auto& name : object_names) {
+    object_models->insert(
+        parser.AddModelFromFile(object_sdf_paths.at(name), name));
   }
 
   // Robots.
