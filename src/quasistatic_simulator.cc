@@ -446,10 +446,7 @@ void QuasistaticSimulator::FormQAndTauH(
  */
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
-                                const double h,
-                                const double contact_detection_tolerance,
-                                const GradientMode gradient_mode,
-                                const double unactuated_mass_scale) {
+                                const QuasistaticSimParameters &params) {
   auto q_dict = GetMbpPositions();
   const auto n_d = sim_params_.nd_per_contact;
 
@@ -632,10 +629,8 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
 }
 
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                                const ModelInstanceIndexToVecMap &tau_ext_dict,
-                                const double h) {
-  Step(q_a_cmd_dict, tau_ext_dict, h, sim_params_.contact_detection_tolerance,
-       sim_params_.gradient_mode, sim_params_.unactuated_mass_scale);
+                                const ModelInstanceIndexToVecMap &tau_ext_dict) {
+  Step(q_a_cmd_dict, tau_ext_dict);
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(

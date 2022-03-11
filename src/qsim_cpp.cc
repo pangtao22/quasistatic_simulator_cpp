@@ -25,8 +25,6 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def_readwrite("gradient_mode", &Class::gradient_mode)
         .def_readwrite("gradient_lstsq_tolerance",
                        &Class::gradient_lstsq_tolerance)
-        .def_readwrite("gradient_from_active_constraints",
-                       &Class::gradient_from_active_constraints)
         .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale);
   }
 

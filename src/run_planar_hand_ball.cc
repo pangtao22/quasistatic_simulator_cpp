@@ -61,7 +61,7 @@ int main() {
     for (int i = 0; i < n; i++) {
       q_sim.UpdateMbpPositions(q0_dict);
       ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
-      q_sim.Step(q0_dict, tau_ext_dict, 0.1);
+      q_sim.Step(q0_dict, tau_ext_dict);
       auto q_next_dict = q_sim.GetMbpPositions();
     }
 

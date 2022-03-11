@@ -33,8 +33,7 @@ VectorXd BatchQuasistaticSimulator::CalcDynamics(
   auto tau_ext_dict = q_sim->CalcTauExt({});
   auto q_a_cmd_dict = q_sim->GetQaCmdDictFromVec(u);
   const auto &sp = q_sim->get_sim_params();
-  q_sim->Step(q_a_cmd_dict, tau_ext_dict, h, sp.contact_detection_tolerance,
-              gradient_mode, unactuated_mass_scale);
+  q_sim->Step(q_a_cmd_dict, tau_ext_dict);
   return q_sim->GetMbpPositionsAsVec();
 }
 
