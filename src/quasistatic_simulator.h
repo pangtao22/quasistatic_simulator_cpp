@@ -28,9 +28,6 @@ using ModelInstanceNameToIndexMap =
 */
 enum class GradientMode { kNone, kBOnly, kAB };
 
-/*
- * Note that C++ does not support modes using CVX.
- */
 enum class ForwardDynamicsMode {kQpMp, kQpCvx, kSocpMp, kLogPyramidMp,
     kLogPyramidCvx, kLogIcecreamMp, kLogIcecreamCvx};
 
@@ -50,6 +47,7 @@ is_quasi_dynamic: bool. If True, dynamics of unactauted objects is
  matrix can sometimes make the unconstrained program unbounded.
 
 mode:
+Note that C++ does not support modes using CVX.
                  | Friction Cone | Force Field | Parser |
 kQpMp            | Pyramid       | No          | MP     |
 kQpCvx           | Pyramid       | No          | CVXPY  |
@@ -278,7 +276,7 @@ private:
 
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
-  std::unique_ptr<QpDerivativesActive> dqp_active_;
+  std::unique_ptr<QpDerivativesActive> dqp_;
   Eigen::MatrixXd Dq_nextDq_;
   Eigen::MatrixXd Dq_nextDqa_cmd_;
 

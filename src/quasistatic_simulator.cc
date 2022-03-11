@@ -48,10 +48,10 @@ void CreateMbp(
   // Objects.
   // Use a set to sort object names.
   std::set<std::string> object_names;
-  for (const auto& item : object_sdf_paths) {
+  for (const auto &item : object_sdf_paths) {
     object_names.insert(item.first);
   }
-  for (const auto& name : object_names) {
+  for (const auto &name : object_names) {
     object_models->insert(
         parser.AddModelFromFile(object_sdf_paths.at(name), name));
   }
@@ -169,7 +169,7 @@ QuasistaticSimulator::QuasistaticSimulator(
 
   // QP derivative.
   dqp_ = std::make_unique<QpDerivatives>(sim_params_.gradient_lstsq_tolerance);
-  dqp_active_ = std::make_unique<QpDerivativesActive>(
+  dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
 
   // Find smallest stiffness.
@@ -448,20 +448,21 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
   auto q_dict = GetMbpPositions();
-  const auto n_d = sim_params_.nd_per_contact;
+  const auto n_d = params.nd_per_contact;
+  const auto h = params.h;
 
   // Compute contact jacobians.
   int n_c, n_f;
   VectorXd phi, phi_constraints;
   MatrixXd Jn, J;
-  CalcJacobianAndPhi(contact_detection_tolerance, &n_c, &n_f, &phi,
+  CalcJacobianAndPhi(params.contact_detection_tolerance, &n_c, &n_f, &phi,
                      &phi_constraints, &Jn, &J);
 
   // form Q and tau_h
   MatrixXd Q;
   VectorXd tau_h;
   FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h,
-               unactuated_mass_scale);
+               params.unactuated_mass_scale);
 
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
@@ -505,7 +506,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     }
   }
 
-  if (unactuated_mass_scale > 0 or std::isnan(unactuated_mass_scale)) {
+  if (params.unactuated_mass_scale > 0 or
+      std::isnan(params.unactuated_mass_scale)) {
     for (const auto &model : models_all_) {
       auto &q_model = q_dict[model];
       q_model += dq_dict[model];
@@ -527,26 +529,17 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   UpdateMbpPositions(q_dict);
 
   // Gradients.
-  if (gradient_mode == GradientMode::kNone) {
+  if (params.gradient_mode == GradientMode::kNone) {
     return;
   } else {
-    QpDerivativesBase *dqp{nullptr};
-    if (sim_params_.gradient_from_active_constraints) {
-      // TODO: the threshold for lagrange multipliers is hard-coded to 0.1N * h.
-      dqp_active_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star, 0.1 * h);
-      dqp = dqp_active_.get();
-    } else {
-      dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star);
-      dqp = dqp_.get();
-    }
-
-    if (gradient_mode == GradientMode::kAB) {
-      const auto &Dv_nextDe = dqp->get_DzDe();
-      const auto &Dv_nextDb = dqp->get_DzDb();
+    dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star, 0.1 * params.h);
+    if (params.gradient_mode == GradientMode::kAB) {
+      const auto &Dv_nextDe = dqp_->get_DzDe();
+      const auto &Dv_nextDb = dqp_->get_DzDb();
       Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_c, n_d, n_f);
       Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-    } else if (gradient_mode == GradientMode::kBOnly) {
-      const auto &Dv_nextDb = dqp->get_DzDb();
+    } else if (params.gradient_mode == GradientMode::kBOnly) {
+      const auto &Dv_nextDb = dqp_->get_DzDb();
       Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
       Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     } else {
@@ -628,9 +621,10 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
   return q_a_cmd_dict;
 }
 
-void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                                const ModelInstanceIndexToVecMap &tau_ext_dict) {
-  Step(q_a_cmd_dict, tau_ext_dict);
+void QuasistaticSimulator::Step(
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict) {
+  Step(q_a_cmd_dict, tau_ext_dict, sim_params_);
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
