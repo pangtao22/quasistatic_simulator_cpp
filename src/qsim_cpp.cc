@@ -13,19 +13,31 @@ PYBIND11_MODULE(qsim_cpp, m) {
       .value("kBOnly", GradientMode::kBOnly)
       .value("kAB", GradientMode::kAB);
 
+  py::enum_<ForwardDynamicsMode>(m, "ForwardDynamicsMode")
+  .value("kQpMp", ForwardDynamicsMode::kQpMp)
+  .value("kQpCvx", ForwardDynamicsMode::kQpCvx)
+  .value("kSocpMp", ForwardDynamicsMode::kSocpMp)
+  .value("kLogPyramidMp", ForwardDynamicsMode::kLogPyramidMp)
+  .value("kLogPyramidCvx", ForwardDynamicsMode::kLogPyramidCvx)
+  .value("kLogIcecreamMp", ForwardDynamicsMode::kLogIcecreamMp)
+  .value("kLogIcecreamCvx", ForwardDynamicsMode::kLogIcecreamCvx);
+
   {
     using Class = QuasistaticSimParameters;
     py::class_<Class>(m, "QuasistaticSimParametersCpp")
         .def(py::init<>())
+        .def_readwrite("h", &Class::h)
         .def_readwrite("gravity", &Class::gravity)
         .def_readwrite("nd_per_contact", &Class::nd_per_contact)
         .def_readwrite("contact_detection_tolerance",
                        &Class::contact_detection_tolerance)
         .def_readwrite("is_quasi_dynamic", &Class::is_quasi_dynamic)
+        .def_readwrite("forward_mode", &Class::forward_mode)
         .def_readwrite("gradient_mode", &Class::gradient_mode)
+        .def_readwrite("log_barrier_weight", &Class::log_barrier_weight)
+        .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale)
         .def_readwrite("gradient_lstsq_tolerance",
-                       &Class::gradient_lstsq_tolerance)
-        .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale);
+                       &Class::gradient_lstsq_tolerance);
   }
 
   {
@@ -44,18 +56,17 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_positions", &Class::GetPositions)
         .def("step",
              py::overload_cast<const ModelInstanceIndexToVecMap &,
-                               const ModelInstanceIndexToVecMap &, const double,
-                               const double, const GradientMode, const double>(
+                               const ModelInstanceIndexToVecMap &,
+                               const QuasistaticSimParameters &>(
                  &Class::Step),
-             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"),
-             py::arg("contact_detection_tolerance"), py::arg("gradient_mode"),
-             py::arg("unactuated_mass_scale"))
+             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"),
+             py::arg("params"))
         .def(
             "step_default",
             py::overload_cast<const ModelInstanceIndexToVecMap &,
-                              const ModelInstanceIndexToVecMap &, const double>(
+                              const ModelInstanceIndexToVecMap &>(
                 &Class::Step),
-            py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"), py::arg("h"))
+            py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"))
         .def("calc_tau_ext", &Class::CalcTauExt)
         .def("get_model_instance_name_to_index_map",
              &Class::GetModelInstanceNameToIndexMap)

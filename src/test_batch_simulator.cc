@@ -26,6 +26,7 @@ protected:
   void SetUp() override {
     // Make sure that n_tasks_ is not divisible by hardware_concurrency.
     n_tasks_ = std::thread::hardware_concurrency() * 20 + 1;
+    sim_params_ = {};
   }
 
   // TODO: simplify these setup functions with QuasistaticParser.
@@ -35,12 +36,11 @@ protected:
 
     const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
 
-    QuasistaticSimParameters sim_params;
-    sim_params.gravity = Vector3d(0, 0, -10);
-    sim_params.nd_per_contact = 2;
-    sim_params.contact_detection_tolerance = 1.0;
-    sim_params.is_quasi_dynamic = true;
-    sim_params.gradient_from_active_constraints = true;
+    sim_params_.h = h_;
+    sim_params_.gravity = Vector3d(0, 0, -10);
+    sim_params_.nd_per_contact = 2;
+    sim_params_.contact_detection_tolerance = 1.0;
+    sim_params_.is_quasi_dynamic = true;
 
     VectorXd Kp(2);
     Kp << 50, 25;
@@ -55,7 +55,7 @@ protected:
         {object_name, kObjectSdfPath}};
 
     q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
-        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
+        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params_);
 
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
@@ -78,12 +78,11 @@ protected:
     const string kObjectSdfPath = GetQsimModelsPath() / "sphere_r0.06m.sdf";
     const string kModelDirectivePath = GetQsimModelsPath() / "allegro_hand.yml";
 
-    QuasistaticSimParameters sim_params;
-    sim_params.gravity = Vector3d(0, 0, 0);
-    sim_params.nd_per_contact = 4;
-    sim_params.contact_detection_tolerance = 0.025;
-    sim_params.is_quasi_dynamic = true;
-    sim_params.gradient_from_active_constraints = true;
+    sim_params_.h = h_;
+    sim_params_.gravity = Vector3d(0, 0, 0);
+    sim_params_.nd_per_contact = 4;
+    sim_params_.contact_detection_tolerance = 0.025;
+    sim_params_.is_quasi_dynamic = true;
 
     constexpr int n_qa = 16;
     VectorXd Kp = VectorXd::Ones(n_qa) * 100;
@@ -97,7 +96,7 @@ protected:
         {object_name, kObjectSdfPath}};
 
     q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
-        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
+        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params_);
 
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
@@ -168,7 +167,8 @@ protected:
   }
 
   int n_tasks_{0};
-  double h_{0.1};
+  const double h_{0.1};
+  QuasistaticSimParameters sim_params_;
   MatrixXd u_batch_, x_batch_;
   std::unique_ptr<BatchQuasistaticSimulator> q_sim_batch_;
 };
@@ -176,12 +176,10 @@ protected:
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
   SetUpPlanarHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                         GradientMode::kNone, {});
+  q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                       GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -196,12 +194,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
   SetUpAllegroHand();
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                         GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                       GradientMode::kNone, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -215,13 +211,13 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
   SetUpPlanarHand();
+  sim_params_.gradient_mode = GradientMode::kBOnly;
+
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                         GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                       GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -235,13 +231,13 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   SetUpAllegroHand();
+  sim_params_.gradient_mode = GradientMode::kBOnly;
+
   auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, h_,
-                                         GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
   auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, h_,
-                                       GradientMode::kBOnly, {});
+      q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
 
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -261,6 +257,8 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
  */
 TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   SetUpPlanarHand();
+  sim_params_.gradient_mode = GradientMode::kBOnly;
+
   const int T = 50;
   const int n_samples = 100;
   const int seed = 1;
@@ -277,9 +275,9 @@ TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   u_trj.rowwise() = u_batch_.row(0);
 
   auto B_bundled1 = q_sim_batch_->CalcBundledBTrjScalarStd(
-      x_trj, u_trj, 0.1, 0.1, n_samples, seed);
-  auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(x_trj, u_trj, 0.1, 0.1,
-                                                        n_samples, seed);
+      x_trj, u_trj, 0.1, sim_params_, n_samples, seed);
+  auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(
+      x_trj, u_trj, 0.1, sim_params_, n_samples, seed);
   for (int i = 0; i < T; i++) {
     double err = (B_bundled1[i] - B_bundled2[i]).norm();
     EXPECT_LT(err, 1e-10);

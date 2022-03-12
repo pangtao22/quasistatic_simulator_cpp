@@ -20,11 +20,11 @@ const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
 
 int main() {
   QuasistaticSimParameters sim_params;
+  sim_params.h = 0.1;
   sim_params.gravity = Vector3d(0, 0, -10);
   sim_params.nd_per_contact = 2;
   sim_params.contact_detection_tolerance = 1.0;
   sim_params.is_quasi_dynamic = true;
-  sim_params.gradient_from_active_constraints = true;
 
   VectorXd Kp;
   Kp.resize(2);

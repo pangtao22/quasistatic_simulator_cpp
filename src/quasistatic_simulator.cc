@@ -168,7 +168,6 @@ QuasistaticSimulator::QuasistaticSimulator(
   }
 
   // QP derivative.
-  dqp_ = std::make_unique<QpDerivatives>(sim_params_.gradient_lstsq_tolerance);
   dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
 
@@ -447,6 +446,9 @@ void QuasistaticSimulator::FormQAndTauH(
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
+  // TODO: handle this better.
+  DRAKE_THROW_UNLESS(params.forward_mode == ForwardDynamicsMode::kQpMp);
+
   auto q_dict = GetMbpPositions();
   const auto n_d = params.nd_per_contact;
   const auto h = params.h;
