@@ -32,6 +32,11 @@ enum class ForwardDynamicsMode {kQpMp, kQpCvx, kSocpMp, kLogPyramidMp,
     kLogPyramidCvx, kLogIcecreamMp, kLogIcecreamCvx};
 
 /*
+h: simulation time step in seconds.
+gravity: 3-vector indicating the gravity feild in world frame.
+ WARNING: it CANNOT be changed after the simulator object is constructed.
+ TODO: differentiate gravity from other simulation parameters, which are not
+  ignored when calling QuasistaticSimulator.Step(...).
 nd_per_contact: int, number of extreme rays per contact point. Only
  useful in QP mode.
 

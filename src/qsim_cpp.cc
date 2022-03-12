@@ -60,7 +60,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
                                const QuasistaticSimParameters &>(
                  &Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"),
-             py::arg("params"))
+             py::arg("sim_params"))
         .def(
             "step_default",
             py::overload_cast<const ModelInstanceIndexToVecMap &,
