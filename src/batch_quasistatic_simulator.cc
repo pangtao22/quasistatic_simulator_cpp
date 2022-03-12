@@ -256,9 +256,9 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrj(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
     const Eigen::Ref<const Eigen::VectorXd> &std_u,
-    const QuasistaticSimParameters &sim_params, int n_samples,
+    QuasistaticSimParameters sim_params, int n_samples,
     std::optional<int> seed) const {
-  DRAKE_THROW_UNLESS(sim_params.gradient_mode == GradientMode::kBOnly);
+  sim_params.gradient_mode = GradientMode::kBOnly;
   if (seed.has_value()) {
     gen_.seed(seed.value());
   }
@@ -325,10 +325,10 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
     const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
     const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
     double std_u,
-    const QuasistaticSimParameters &sim_params,
+    QuasistaticSimParameters sim_params,
     int n_samples,
     std::optional<int> seed) const {
-  DRAKE_THROW_UNLESS(sim_params.gradient_mode == GradientMode::kBOnly);
+  sim_params.gradient_mode = GradientMode::kBOnly;
   if (seed.has_value()) {
     gen_.seed(seed.value());
   }

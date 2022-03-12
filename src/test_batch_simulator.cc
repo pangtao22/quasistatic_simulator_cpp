@@ -257,7 +257,6 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
  */
 TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   SetUpPlanarHand();
-  sim_params_.gradient_mode = GradientMode::kBOnly;
 
   const int T = 50;
   const int n_samples = 100;

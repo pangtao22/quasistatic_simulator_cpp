@@ -24,7 +24,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
 
   {
     using Class = QuasistaticSimParameters;
-    py::class_<Class>(m, "QuasistaticSimParametersCpp")
+    py::class_<Class>(m, "QuasistaticSimParameters")
         .def(py::init<>())
         .def_readwrite("h", &Class::h)
         .def_readwrite("gravity", &Class::gravity)

@@ -29,12 +29,6 @@ public:
                      const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                      const QuasistaticSimParameters &sim_params) const;
 
-  std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
-  CalcDynamicsSerial(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
-                     const Eigen::Ref<const Eigen::MatrixXd> &u_batch) const {
-    return CalcDynamicsSerial(x_batch, u_batch, get_q_sim().get_sim_params());
-  }
-
   /*
    * Each row in x_batch and u_batch represent a pair of current states and
    * inputs. The function returns a tuple of
@@ -64,20 +58,11 @@ public:
                            int n_samples, std::optional<int> seed) const;
 
   std::vector<Eigen::MatrixXd>
-  CalcBundledBTrj(const Eigen::Ref<
-      const Eigen::MatrixXd> &x_trj,
-                  const Eigen::Ref<
-                      const Eigen::MatrixXd> &u_trj,
-                  const Eigen::Ref<
-                      const Eigen::VectorXd> &std_u,
-                  const QuasistaticSimParameters &sim_params,
-                  int n_samples,
-                  std::optional<
-                      int> seed) const;
-
-  Eigen::MatrixXd
-  SampleGaussianMatrix(int n_rows, const Eigen::Ref<const Eigen::VectorXd> &mu,
-                       const Eigen::Ref<const Eigen::VectorXd> &std) const;
+  CalcBundledBTrj(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+                  const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
+                  const Eigen::Ref<const Eigen::VectorXd> &std_u,
+                  QuasistaticSimParameters sim_params, int n_samples,
+                  std::optional<int> seed) const;
 
   /*
    * Implements multi-threaded computation of bundled gradient based on drake's
@@ -92,13 +77,14 @@ public:
    * Francisco :)
    */
   std::vector<Eigen::MatrixXd>
-  CalcBundledBTrjDirect(
-      const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
-      const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
-      double std_u,
-      const QuasistaticSimParameters &sim_params,
-      int n_samples,
-      std::optional<int> seed) const;
+  CalcBundledBTrjDirect(const Eigen::Ref<const Eigen::MatrixXd> &x_trj,
+                        const Eigen::Ref<const Eigen::MatrixXd> &u_trj,
+                        double std_u, QuasistaticSimParameters sim_params,
+                        int n_samples, std::optional<int> seed) const;
+
+  Eigen::MatrixXd
+  SampleGaussianMatrix(int n_rows, const Eigen::Ref<const Eigen::VectorXd> &mu,
+                       const Eigen::Ref<const Eigen::VectorXd> &std) const;
 
   size_t get_num_max_parallel_executions() const {
     return num_max_parallel_executions;
