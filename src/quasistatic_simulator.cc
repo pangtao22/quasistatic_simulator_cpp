@@ -96,7 +96,8 @@ QuasistaticSimulator::QuasistaticSimulator(
     const std::unordered_map<std::string, std::string> &object_sdf_paths,
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
-      solver_(std::make_unique<drake::solvers::GurobiSolver>()) {
+      solver_grb_(std::make_unique<drake::solvers::GurobiSolver>()),
+      solver_msk_(std::make_unique<drake::solvers::MosekSolver>()) {
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -432,37 +433,49 @@ void QuasistaticSimulator::CalcQAndTauH(
   }
 }
 
-/*
- 1. Extracts q_dict, a dictionary containing current system
-    configuration, from context_plant_.
- 2. Runs collision query and computes contact Jacobians by calling
-    CalcJacobianAndPhi.
- 3. Constructs and solves the quasistatic QP described in the paper.
- 4. Integrates q_dict to the next time step.
- 5. Calls UpdateMbpPositions with the new q_dict.
- */
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
   // TODO: handle this better.
-  DRAKE_THROW_UNLESS(params.forward_mode == ForwardDynamicsMode::kQpMp);
+  const auto fm = params.forward_mode;
   auto q_dict = GetMbpPositions();
 
-  // Optimization coefficient matrices and vectors.
-  MatrixXd Q, Jn, J;
-  VectorXd tau_h, phi, phi_constraints;
-  // Primal and dual solutions.
-  VectorXd v_star, beta_star;
+  if (fm == ForwardDynamicsMode::kQpMp) {
+    // Optimization coefficient matrices and vectors.
+    MatrixXd Q, Jn, J;
+    VectorXd tau_h, phi, phi_constraints;
+    // Primal and dual solutions.
+    VectorXd v_star, beta_star;
 
-  CalcQpMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h, &Jn,
-                 &J, &phi, &phi_constraints);
-  StepForwardQp(q_a_cmd_dict, tau_ext_dict, params, Q, tau_h, Jn, J, phi,
-                phi_constraints, &q_dict, &v_star, &beta_star);
-  BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, v_star, beta_star,
-             params);
+    CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
+                        &Jn, &J, &phi, &phi_constraints);
+    StepForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict, &v_star,
+                  &beta_star);
+    BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, v_star, beta_star,
+               params);
+    return;
+  }
+
+  if (fm == ForwardDynamicsMode::kLogPyramidMp) {
+    DRAKE_THROW_UNLESS(params.gradient_mode == GradientMode::kNone);
+    MatrixXd Q, Jn, J;
+    VectorXd tau_h, phi, phi_constraints;
+    // Primal and dual solutions.
+    VectorXd v_star;
+    CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
+                        &Jn, &J, &phi, &phi_constraints);
+    StepForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict,
+                          &v_star);
+    return;
+  }
+
+  std::stringstream ss;
+  ss << "Forward dynamics mode " << static_cast<int>(fm)
+     << " is not supported in C++.";
+  throw std::logic_error(ss.str());
 }
 
-void QuasistaticSimulator::CalcQpMatrices(
+void QuasistaticSimulator::CalcPyramidMatrices(
     const ModelInstanceIndexToVecMap &q_dict,
     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     const ModelInstanceIndexToVecMap &tau_ext_dict,
@@ -476,23 +489,17 @@ void QuasistaticSimulator::CalcQpMatrices(
 }
 
 void QuasistaticSimulator::StepForwardQp(
-    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-    const ModelInstanceIndexToVecMap &tau_ext_dict,
-    const QuasistaticSimParameters &params,
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
     const Eigen::Ref<const Eigen::MatrixXd> &J,
-    const Eigen::Ref<const Eigen::VectorXd> &phi,
     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const QuasistaticSimParameters &params,
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
     Eigen::VectorXd *beta_star_ptr) {
   auto &q_dict = *q_dict_ptr;
   VectorXd &v_star = *v_star_ptr;
   VectorXd &beta_star = *beta_star_ptr;
-  const auto n_c = phi.size();
-  const auto n_d = params.nd_per_contact;
-  const auto n_f = n_c * n_d;
+  const auto n_f = phi_constraints.size();
   const auto h = params.h;
 
   // construct and solve MathematicalProgram.
@@ -505,7 +512,7 @@ void QuasistaticSimulator::StepForwardQp(
       -J, VectorXd::Constant(n_f, -std::numeric_limits<double>::infinity()), e,
       v);
 
-  solver_->Solve(prog, {}, solver_options_, &mp_result_);
+  solver_grb_->Solve(prog, {}, solver_options_, &mp_result_);
   if (!mp_result_.is_success()) {
     throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
   }
@@ -514,47 +521,7 @@ void QuasistaticSimulator::StepForwardQp(
   beta_star = -mp_result_.GetDualSolution(constraints);
 
   // Update q_dict.
-  const auto v_dict = GetVdictFromVec(v_star);
-  std::unordered_map<ModelInstanceIndex, VectorXd> dq_dict;
-  for (const auto &model : models_all_) {
-    const auto &idx_v = velocity_indices_.at(model);
-    const auto n_q_i = plant_->num_positions(model);
-
-    if (is_3d_floating_[model]) {
-      // Positions of the model contains a quaternion. Conversion from
-      // angular velocities to quaternion dot is necessary.
-      const auto &q_u = q_dict[model];
-      const Eigen::Vector4d Q(q_u.head(4));
-
-      VectorXd dq_u(7);
-      const auto &v_u = v_dict.at(model);
-      dq_u.head(4) = GetE(Q) * v_u.head(3) * h;
-      dq_u.tail(3) = v_u.tail(3) * h;
-
-      dq_dict[model] = dq_u;
-    } else {
-      dq_dict[model] = v_dict.at(model) * h;
-    }
-  }
-
-  if (params.unactuated_mass_scale > 0 or
-      std::isnan(params.unactuated_mass_scale)) {
-    for (const auto &model : models_all_) {
-      auto &q_model = q_dict[model];
-      q_model += dq_dict[model];
-
-      if (is_3d_floating_[model]) {
-        // Normalize quaternion.
-        q_model.head(4).normalize();
-      }
-    }
-  } else {
-    // un-actuated objects remain fixed.
-    for (const auto &model : models_actuated_) {
-      auto &q_model = q_dict[model];
-      q_model += dq_dict[model];
-    }
-  }
+  UpdateQdictFromV(v_star, params, &q_dict);
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
@@ -589,6 +556,54 @@ void QuasistaticSimulator::BackwardQp(
   } else {
     throw std::runtime_error("Invalid gradient_mode.");
   }
+}
+
+void QuasistaticSimulator::StepForwardLogPyramid(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
+  const auto n_f = J.rows();
+  const auto h = params.h;
+
+  drake::solvers::MathematicalProgram prog;
+  auto v = prog.NewContinuousVariables(n_v_, "v");
+  auto s = prog.NewContinuousVariables(n_f, "s");
+
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
+  prog.AddLinearCost(-VectorXd::Constant(n_f, 1 / params.log_barrier_weight), 0,
+                     s);
+
+  for (int i = 0; i < n_f; i++) {
+    MatrixXd A = MatrixXd::Zero(3, n_v_ + 1);
+    A.row(0).head(n_v_) = J.row(i);
+    A(2, n_v_) = 1;
+
+    Vector3d b(phi_constraints[i] / h, 1, 0);
+
+    drake::solvers::VectorXDecisionVariable v_s_i(n_v_ + 1);
+    v_s_i.head(n_v_) = v;
+    v_s_i[n_v_] = s[i];
+    prog.AddExponentialConeConstraint(A.sparseView(), b, v_s_i);
+  }
+
+  solver_msk_->Solve(prog, {}, {}, &mp_result_);
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error(
+        "Quasistatic dynamics Log Pyramid cannot be solved.");
+  }
+
+  v_star = mp_result_.GetSolution(v);
+
+  // Update q_dict.
+  UpdateQdictFromV(v_star, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
 }
 
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(
@@ -865,4 +880,56 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
   }
 
   return M_u_dict;
+}
+
+void QuasistaticSimulator::UpdateQdictFromV(
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr) const {
+  const auto v_dict = GetVdictFromVec(v_star);
+  auto &q_dict = *q_dict_ptr;
+  const auto h = params.h;
+
+  std::unordered_map<ModelInstanceIndex, VectorXd> dq_dict;
+  for (const auto &model : models_all_) {
+    const auto &idx_v = velocity_indices_.at(model);
+    const auto n_q_i = plant_->num_positions(model);
+
+    if (is_3d_floating_.at(model)) {
+      // Positions of the model contains a quaternion. Conversion from
+      // angular velocities to quaternion dot is necessary.
+      const auto &q_u = q_dict[model];
+      const Eigen::Vector4d Q(q_u.head(4));
+
+      VectorXd dq_u(7);
+      const auto &v_u = v_dict.at(model);
+      dq_u.head(4) = GetE(Q) * v_u.head(3) * h;
+      dq_u.tail(3) = v_u.tail(3) * h;
+
+      dq_dict[model] = dq_u;
+    } else {
+      dq_dict[model] = v_dict.at(model) * h;
+    }
+  }
+
+  // TODO: not updating unactuated object poses can lead to penetration at
+  //  the next time step. A better solution is needed.
+  if (params.unactuated_mass_scale > 0 or
+      std::isnan(params.unactuated_mass_scale)) {
+    for (const auto &model : models_all_) {
+      auto &q_model = q_dict[model];
+      q_model += dq_dict[model];
+
+      if (is_3d_floating_.at(model)) {
+        // Normalize quaternion.
+        q_model.head(4).normalize();
+      }
+    }
+  } else {
+    // un-actuated objects remain fixed.
+    for (const auto &model : models_actuated_) {
+      auto &q_model = q_dict[model];
+      q_model += dq_dict[model];
+    }
+  }
 }

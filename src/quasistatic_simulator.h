@@ -8,6 +8,7 @@
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
+#include "drake/solvers/mosek_solver.h"
 
 #include "qp_derivatives.h"
 
@@ -283,27 +284,35 @@ private:
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
 
-  void CalcQpMatrices(const ModelInstanceIndexToVecMap &q_dict,
-                      const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                      const ModelInstanceIndexToVecMap &tau_ext_dict,
-                      const QuasistaticSimParameters &params,
-                      Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
-                      Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
-                      Eigen::VectorXd *phi,
-                      Eigen::VectorXd *phi_constraints) const;
+  void UpdateQdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                        const QuasistaticSimParameters &params,
+                        ModelInstanceIndexToVecMap *q_dict_ptr) const;
 
-  void StepForwardQp(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                     const ModelInstanceIndexToVecMap &tau_ext_dict,
-                     const QuasistaticSimParameters &params,
-                     const Eigen::Ref<const Eigen::MatrixXd> &Q,
+  void CalcPyramidMatrices(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                           const ModelInstanceIndexToVecMap &tau_ext_dict,
+                           const QuasistaticSimParameters &params,
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
+                           Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
+                           Eigen::VectorXd *phi,
+                           Eigen::VectorXd *phi_constraints) const;
+
+  void StepForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-                     const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                      const Eigen::Ref<const Eigen::MatrixXd> &J,
-                     const Eigen::Ref<const Eigen::VectorXd> &phi,
                      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                     const QuasistaticSimParameters &params,
                      ModelInstanceIndexToVecMap *q_dict_ptr,
                      Eigen::VectorXd *v_star_ptr,
                      Eigen::VectorXd *beta_star_ptr);
+
+  void StepForwardLogPyramid(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const Eigen::Ref<const Eigen::MatrixXd> &J,
+      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
 
   void BackwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                   const Eigen::Ref<const Eigen::VectorXd> &tau_h,
@@ -317,8 +326,9 @@ private:
 
   QuasistaticSimParameters sim_params_;
 
-  // QP solver.
-  std::unique_ptr<drake::solvers::GurobiSolver> solver_;
+  // Solvers.
+  std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
+  std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
   drake::solvers::SolverOptions solver_options_;
 
