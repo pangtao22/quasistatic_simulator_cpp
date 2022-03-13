@@ -25,11 +25,18 @@ using ModelInstanceNameToIndexMap =
  * - kNone: do not compute gradient, just roll out the dynamics.
  * - kBOnly: only computes dfdu, where x_next = f(x, u).
  * - kAB: computes both dfdx and dfdu.
-*/
+ */
 enum class GradientMode { kNone, kBOnly, kAB };
 
-enum class ForwardDynamicsMode {kQpMp, kQpCvx, kSocpMp, kLogPyramidMp,
-    kLogPyramidCvx, kLogIcecreamMp, kLogIcecreamCvx};
+enum class ForwardDynamicsMode {
+  kQpMp,
+  kQpCvx,
+  kSocpMp,
+  kLogPyramidMp,
+  kLogPyramidCvx,
+  kLogIcecreamMp,
+  kLogIcecreamCvx
+};
 
 /*
 h: simulation time step in seconds.
@@ -241,8 +248,8 @@ private:
   [[nodiscard]] std::unique_ptr<drake::multibody::ModelInstanceIndex>
       FindModelForBody(drake::multibody::BodyIndex) const;
 
-  void CalcJacobianAndPhi(const double contact_detection_tol, int *n_c_ptr,
-                          int *n_f_ptr, Eigen::VectorXd *phi_ptr,
+  void CalcJacobianAndPhi(const double contact_detection_tol,
+                          Eigen::VectorXd *phi_ptr,
                           Eigen::VectorXd *phi_constraints_ptr,
                           Eigen::MatrixXd *Jn_ptr,
                           Eigen::MatrixXd *J_ptr) const;
@@ -255,7 +262,7 @@ private:
                           drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
                           drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
 
-  void FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
+  void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
                     const double h, Eigen::MatrixXd *Q_ptr,
@@ -269,12 +276,44 @@ private:
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-                           const int n_c, const int n_d, const int n_f) const;
+                           const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
   GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
+
+  void CalcQpMatrices(const ModelInstanceIndexToVecMap &q_dict,
+                      const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                      const ModelInstanceIndexToVecMap &tau_ext_dict,
+                      const QuasistaticSimParameters &params,
+                      Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
+                      Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
+                      Eigen::VectorXd *phi,
+                      Eigen::VectorXd *phi_constraints) const;
+
+  void StepForwardQp(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                     const ModelInstanceIndexToVecMap &tau_ext_dict,
+                     const QuasistaticSimParameters &params,
+                     const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                     const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                     const Eigen::Ref<const Eigen::MatrixXd> &J,
+                     const Eigen::Ref<const Eigen::VectorXd> &phi,
+                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                     ModelInstanceIndexToVecMap *q_dict_ptr,
+                     Eigen::VectorXd *v_star_ptr,
+                     Eigen::VectorXd *beta_star_ptr);
+
+  void BackwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                  const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                  const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                  const Eigen::Ref<const Eigen::MatrixXd> &J,
+                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                  const ModelInstanceIndexToVecMap &q_dict,
+                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                  const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+                  const QuasistaticSimParameters &params);
 
   QuasistaticSimParameters sim_params_;
 

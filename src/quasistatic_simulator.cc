@@ -298,24 +298,24 @@ void QuasistaticSimulator::UpdateJacobianRows(
 }
 
 void QuasistaticSimulator::CalcJacobianAndPhi(
-    const double contact_detection_tol, int *n_c_ptr, int *n_f_ptr,
-    VectorXd *phi_ptr, VectorXd *phi_constraints_ptr, MatrixXd *Jn_ptr,
-    MatrixXd *J_ptr) const {
+    const double contact_detection_tol, VectorXd *phi_ptr,
+    VectorXd *phi_constraints_ptr, MatrixXd *Jn_ptr, MatrixXd *J_ptr) const {
+  VectorXd &phi = *phi_ptr;
+  VectorXd &phi_constraints = *phi_constraints_ptr;
+  MatrixXd &Jn = *Jn_ptr;
+  MatrixXd &J = *J_ptr;
+
   // Collision queries.
   const auto &sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
       contact_detection_tol);
 
   // Contact Jacobians.
-  auto &n_c = *n_c_ptr;
-  n_c = sdps.size();
+  const auto n_c = sdps.size();
   const int n_v = plant_->num_velocities();
   const int n_d = sim_params_.nd_per_contact;
-  auto &n_f = *n_f_ptr;
-  n_f = n_d * n_c;
+  const auto n_f = n_d * n_c;
 
-  VectorXd &phi = *phi_ptr;
   phi.resize(n_c);
-  MatrixXd &Jn = *Jn_ptr;
   Jn.resize(n_c, n_v);
   Jn.setZero();
 
@@ -366,9 +366,7 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
   }
 
   // Jacobian for constraints.
-  VectorXd &phi_constraints = *phi_constraints_ptr;
   phi_constraints.resize(n_f);
-  MatrixXd &J = *J_ptr;
   J = Jf;
 
   int j_start = 0;
@@ -382,7 +380,7 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
   }
 }
 
-void QuasistaticSimulator::FormQAndTauH(
+void QuasistaticSimulator::CalcQAndTauH(
     const ModelInstanceIndexToVecMap &q_dict,
     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
@@ -448,23 +446,54 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const QuasistaticSimParameters &params) {
   // TODO: handle this better.
   DRAKE_THROW_UNLESS(params.forward_mode == ForwardDynamicsMode::kQpMp);
-
   auto q_dict = GetMbpPositions();
-  const auto n_d = params.nd_per_contact;
-  const auto h = params.h;
 
-  // Compute contact jacobians.
-  int n_c, n_f;
-  VectorXd phi, phi_constraints;
-  MatrixXd Jn, J;
-  CalcJacobianAndPhi(params.contact_detection_tolerance, &n_c, &n_f, &phi,
-                     &phi_constraints, &Jn, &J);
+  // Optimization coefficient matrices and vectors.
+  MatrixXd Q, Jn, J;
+  VectorXd tau_h, phi, phi_constraints;
+  // Primal and dual solutions.
+  VectorXd v_star, beta_star;
 
-  // form Q and tau_h
-  MatrixXd Q;
-  VectorXd tau_h;
-  FormQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, h, &Q, &tau_h,
+  CalcQpMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h, &Jn,
+                 &J, &phi, &phi_constraints);
+  StepForwardQp(q_a_cmd_dict, tau_ext_dict, params, Q, tau_h, Jn, J, phi,
+                phi_constraints, &q_dict, &v_star, &beta_star);
+  BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, v_star, beta_star,
+             params);
+}
+
+void QuasistaticSimulator::CalcQpMatrices(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict,
+    const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
+    Eigen::VectorXd *tau_h, Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
+    Eigen::VectorXd *phi, Eigen::VectorXd *phi_constraints) const {
+  CalcJacobianAndPhi(params.contact_detection_tolerance, phi, phi_constraints,
+                     Jn, J);
+  CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
+}
+
+void QuasistaticSimulator::StepForwardQp(
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict,
+    const QuasistaticSimParameters &params,
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
+    Eigen::VectorXd *beta_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
+  VectorXd &beta_star = *beta_star_ptr;
+  const auto n_c = phi.size();
+  const auto n_d = params.nd_per_contact;
+  const auto n_f = n_c * n_d;
+  const auto h = params.h;
 
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
@@ -481,8 +510,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
   }
 
-  const VectorXd v_star = mp_result_.GetSolution(v);
-  const VectorXd beta_star = -mp_result_.GetDualSolution(constraints);
+  v_star = mp_result_.GetSolution(v);
+  beta_star = -mp_result_.GetDualSolution(constraints);
 
   // Update q_dict.
   const auto v_dict = GetVdictFromVec(v_star);
@@ -529,24 +558,36 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
+}
 
-  // Gradients.
+void QuasistaticSimulator::BackwardQp(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+    const QuasistaticSimParameters &params) {
   if (params.gradient_mode == GradientMode::kNone) {
     return;
+  }
+  const auto h = params.h;
+  const auto n_d = params.nd_per_contact;
+  dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
+                      0.1 * params.h);
+  if (params.gradient_mode == GradientMode::kAB) {
+    const auto &Dv_nextDe = dqp_->get_DzDe();
+    const auto &Dv_nextDb = dqp_->get_DzDb();
+    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_d);
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
+  } else if (params.gradient_mode == GradientMode::kBOnly) {
+    const auto &Dv_nextDb = dqp_->get_DzDb();
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
   } else {
-    dqp_->UpdateProblem(Q, -tau_h, -J, e, v_star, beta_star, 0.1 * params.h);
-    if (params.gradient_mode == GradientMode::kAB) {
-      const auto &Dv_nextDe = dqp_->get_DzDe();
-      const auto &Dv_nextDb = dqp_->get_DzDb();
-      Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_c, n_d, n_f);
-      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-    } else if (params.gradient_mode == GradientMode::kBOnly) {
-      const auto &Dv_nextDb = dqp_->get_DzDb();
-      Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-      Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
-    } else {
-      throw std::runtime_error("Invalid gradient_mode.");
-    }
+    throw std::runtime_error("Invalid gradient_mode.");
   }
 }
 
@@ -695,8 +736,10 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe, const double h,
-    const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_c, const int n_d,
-    const int n_f) const {
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_d) const {
+  const auto n_c = Jn.rows();
+  const auto n_f = n_c * n_d;
+
   /*----------------------------------------------------------------*/
   MatrixXd Dphi_constraints_Dq(n_f, n_v_);
   int i_start = 0;
