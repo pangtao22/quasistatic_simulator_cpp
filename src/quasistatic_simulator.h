@@ -79,6 +79,9 @@ gradient_lstsq_tolerance: float
    of A_inv.
    A warning is printed when the relative error is greater than this number.
 */
+// TODO: the inputs to QuasistaticSimulator's constructor should be
+//  collected into a "QuasistaticPlantParameters" structure, which
+//  cannot be changed after the constructor call. "gravity" belongs there.
 struct QuasistaticSimParameters {
   double h{NAN};
   Eigen::Vector3d gravity;
@@ -89,6 +92,7 @@ struct QuasistaticSimParameters {
   GradientMode gradient_mode{GradientMode::kNone};
   double log_barrier_weight{NAN};
   double unactuated_mass_scale{NAN};
+  // -------------------------- CPP only --------------------------
   double gradient_lstsq_tolerance{2e-2};
 };
 
