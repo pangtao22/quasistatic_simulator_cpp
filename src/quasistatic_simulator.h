@@ -324,6 +324,13 @@ private:
                   const Eigen::Ref<const Eigen::VectorXd> &beta_star,
                   const QuasistaticSimParameters &params);
 
+  void BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                  const Eigen::Ref<const Eigen::MatrixXd> &J,
+                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                  const ModelInstanceIndexToVecMap &q_dict,
+                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                  const QuasistaticSimParameters &params);
+
   QuasistaticSimParameters sim_params_;
 
   // Solvers.

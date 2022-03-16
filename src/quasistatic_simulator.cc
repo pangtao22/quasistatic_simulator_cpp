@@ -457,7 +457,6 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   }
 
   if (fm == ForwardDynamicsMode::kLogPyramidMp) {
-    DRAKE_THROW_UNLESS(params.gradient_mode == GradientMode::kNone);
     MatrixXd Q, Jn, J;
     VectorXd tau_h, phi, phi_constraints;
     // Primal and dual solutions.
@@ -466,6 +465,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                         &Jn, &J, &phi, &phi_constraints);
     StepForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict,
                           &v_star);
+    BackwardLogPyramid(Q, J, phi_constraints, q_dict, v_star, params);
     return;
   }
 
@@ -544,18 +544,53 @@ void QuasistaticSimulator::BackwardQp(
   const auto n_d = params.nd_per_contact;
   dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
                       0.1 * params.h);
+
   if (params.gradient_mode == GradientMode::kAB) {
     const auto &Dv_nextDe = dqp_->get_DzDe();
     const auto &Dv_nextDb = dqp_->get_DzDb();
     Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_d);
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-  } else if (params.gradient_mode == GradientMode::kBOnly) {
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
     const auto &Dv_nextDb = dqp_->get_DzDb();
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
-  } else {
-    throw std::runtime_error("Invalid gradient_mode.");
+    return;
   }
+
+  throw std::runtime_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::BackwardLogPyramid(const Eigen::Ref<const
+    Eigen::MatrixXd> &Q,
+                        const Eigen::Ref<const Eigen::MatrixXd> &J,
+                        const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                        const ModelInstanceIndexToVecMap &q_dict,
+                        const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                        const QuasistaticSimParameters &params) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    Eigen::MatrixXd H(Q);
+    for (int i = 0; i < J.rows(); i++) {
+      double d = phi_constraints[i] / params.h + J.row(i) * v_star;
+      H += J.row(i).transpose() * J.row(i) / d / d / params.log_barrier_weight;
+    }
+    MatrixXd Dv_nextDb(n_v_, n_v_);
+    Dv_nextDb.setIdentity();
+    Dv_nextDb *= -1;
+    H.llt().solveInPlace(Dv_nextDb);  // H is positive definite.
+
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict);
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::runtime_error("Invalid gradient_mode.");
 }
 
 void QuasistaticSimulator::StepForwardLogPyramid(
@@ -706,46 +741,48 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
 
   const MatrixXd Dv_nextDqa_cmd = Dv_nextDb * DbDqa_cmd;
 
+  // 2D systems.
   if (n_v_ == n_q_) {
     return h * Dv_nextDqa_cmd;
-  } else {
-    MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
-    for (const auto &model : models_all_) {
-      const auto &idx_v_model = velocity_indices_.at(model);
-      const auto &idx_q_model = position_indices_.at(model);
+  }
 
-      if (is_3d_floating_.at(model)) {
-        // If q contains a quaternion.
-        const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
-        const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
+  // 3D systems.
+  MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
+  for (const auto &model : models_all_) {
+    const auto &idx_v_model = velocity_indices_.at(model);
+    const auto &idx_q_model = position_indices_.at(model);
 
-        MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_a_);
-        for (int i = 0; i < 3; i++) {
-          Dv_nextDqa_cmd_model_rot.row(i) = Dv_nextDqa_cmd.row(idx_v_model[i]);
-        }
+    if (is_3d_floating_.at(model)) {
+      // If q contains a quaternion.
+      const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
+      const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
 
-        MatrixXd E_X_Dv_nextDqa_cmd_model_rot = E * Dv_nextDqa_cmd_model_rot;
-        for (int i = 0; i < 7; i++) {
-          const int i_q = idx_q_model[i];
-          if (i < 4) {
-            // Rotation.
-            Dq_dot_nextDqa_cmd.row(i_q) = E_X_Dv_nextDqa_cmd_model_rot.row(i);
-          } else {
-            // Translation.
-            const int i_v = idx_v_model[i - 1];
-            Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
-          }
-        }
-      } else {
-        for (int i = 0; i < idx_v_model.size(); i++) {
-          const int i_q = idx_q_model[i];
-          const int i_v = idx_v_model[i];
+      MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_a_);
+      for (int i = 0; i < 3; i++) {
+        Dv_nextDqa_cmd_model_rot.row(i) = Dv_nextDqa_cmd.row(idx_v_model[i]);
+      }
+
+      MatrixXd E_X_Dv_nextDqa_cmd_model_rot = E * Dv_nextDqa_cmd_model_rot;
+      for (int i = 0; i < 7; i++) {
+        const int i_q = idx_q_model[i];
+        if (i < 4) {
+          // Rotation.
+          Dq_dot_nextDqa_cmd.row(i_q) = E_X_Dv_nextDqa_cmd_model_rot.row(i);
+        } else {
+          // Translation.
+          const int i_v = idx_v_model[i - 1];
           Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
         }
       }
+    } else {
+      for (int i = 0; i < idx_v_model.size(); i++) {
+        const int i_q = idx_q_model[i];
+        const int i_v = idx_v_model[i];
+        Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
+      }
     }
-    return h * Dq_dot_nextDqa_cmd;
   }
+  return h * Dq_dot_nextDqa_cmd;
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
