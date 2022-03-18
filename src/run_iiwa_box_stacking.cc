@@ -35,6 +35,7 @@ int main() {
   cout << std::filesystem::current_path().generic_string() << endl;
 
   QuasistaticSimParameters sim_params;
+  sim_params.h = 0.1;
   sim_params.gravity = Vector3d(0, 0, -10);
   sim_params.nd_per_contact = 4;
   sim_params.contact_detection_tolerance = 0.02;
@@ -89,7 +90,7 @@ int main() {
 
   q_sim.UpdateMbpPositions(q0_dict);
   ModelInstanceIndexToVecMap tau_ext_dict = q_sim.CalcTauExt({});
-  q_sim.Step(q0_dict, tau_ext_dict, 0.1);
+  q_sim.Step(q0_dict, tau_ext_dict);
 
   return 0;
 }

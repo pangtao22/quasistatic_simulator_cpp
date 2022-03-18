@@ -8,6 +8,7 @@
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
+#include "drake/solvers/mosek_solver.h"
 
 #include "qp_derivatives.h"
 
@@ -19,29 +20,65 @@ using ModelInstanceNameToIndexMap =
     std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
 
 /*
-Gradient computation mode of QuasistaticSimulator.
-- kNone: do not compute gradient, just roll out the dynamics.
-- kBOnly: only computes dfdu, where x_next = f(x, u).
-    - kAB: computes both dfdx and dfdu.
-*/
+ * Gradient computation mode of QuasistaticSimulator.
+ * Using an analogy from torch, GradientMode is the mode when "backward()" is
+ *  called, after the forward dynamics is done.
+ * - kNone: do not compute gradient, just roll out the dynamics.
+ * - kBOnly: only computes dfdu, where x_next = f(x, u).
+ * - kAB: computes both dfdx and dfdu.
+ */
 enum class GradientMode { kNone, kBOnly, kAB };
 
-/*
- * Denotes whether the indices are those of a configuration vector of a model
- * into the configuration vector of the system, or those of a velocity vector
- * of a model into the velocity vector of the system.
- */
-enum class ModelIndicesMode { kQ, kV };
+enum class ForwardDynamicsMode {
+  kQpMp,
+  kQpCvx,
+  kSocpMp,
+  kLogPyramidMp,
+  kLogPyramidCvx,
+  kLogIcecreamMp,
+  kLogIcecreamCvx
+};
 
-struct QuasistaticSimParameters {
-  Eigen::Vector3d gravity;
-  size_t nd_per_contact;
-  double contact_detection_tolerance;
-  bool is_quasi_dynamic;
-  GradientMode gradient_mode{GradientMode::kNone};
-  bool gradient_from_active_constraints{true};
-  double unactuated_mass_scale{NAN};
-  /*
+/*
+h: simulation time step in seconds.
+gravity: 3-vector indicating the gravity feild in world frame.
+ WARNING: it CANNOT be changed after the simulator object is constructed.
+ TODO: differentiate gravity from other simulation parameters, which are not
+  ignored when calling QuasistaticSimulator.Step(...).
+nd_per_contact: int, number of extreme rays per contact point. Only
+ useful in QP mode.
+
+contact_detection_tolerance: Signed distance pairs whose distances are
+ greater than this value are ignored in the simulator's non-penetration
+ constraints. Unit is in meters.
+
+is_quasi_dynamic: bool. If True, dynamics of unactauted objects is
+ given by sum(F) = M @ (v_(l+1) - 0). If False, it becomes sum(F) = 0 instead.
+
+ The mass matrix for unactuated objects is always added when the
+ unconstrained (log-barrier) version of the problem is solved. Not having a mass
+ matrix can sometimes make the unconstrained program unbounded.
+
+mode:
+Note that C++ does not support modes using CVX.
+                 | Friction Cone | Force Field | Parser |
+kQpMp            | Pyramid       | No          | MP     |
+kQpCvx           | Pyramid       | No          | CVXPY  |
+kSocpMp          | Icecream      | No          | MP     |
+kLogPyramidMp    | Pyramid       | Yes         | MP     |
+kLogPyramidCvx   | Pyramid       | Yes         | CVXPY  |
+kLogIcecreamMp   | Icecream      | Yes         | MP     |
+kLogIcecreamCvx  | Icecream      | Yes         | CVXPY  |
+
+log_barrier_weight: float, used only in log-barrier modes.
+
+unactuated_mass_scale:
+scales the mass matrix of un-actuated objects by epsilon, so that
+(max_M_u_eigen_value * epsilon) * unactuated_mass_scale = min_h_squared_K.
+    If 0, the mass matrix is not scaled. Refer to the function that computes
+    mass matrix for details.
+*------------------------------C++ only-----------------------------------*
+gradient_lstsq_tolerance: float
    When solving for A during dynamics gradient computation, i.e.
    A * A_inv = I_n, --------(*)
    the relative error is defined as
@@ -49,9 +86,30 @@ struct QuasistaticSimParameters {
    where A_sol is the least squares solution to (*), or the pseudo-inverse
    of A_inv.
    A warning is printed when the relative error is greater than this number.
-   */
+*/
+// TODO: the inputs to QuasistaticSimulator's constructor should be
+//  collected into a "QuasistaticPlantParameters" structure, which
+//  cannot be changed after the constructor call. "gravity" belongs there.
+struct QuasistaticSimParameters {
+  double h{NAN};
+  Eigen::Vector3d gravity;
+  size_t nd_per_contact;
+  double contact_detection_tolerance;
+  bool is_quasi_dynamic;
+  ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
+  GradientMode gradient_mode{GradientMode::kNone};
+  double log_barrier_weight{NAN};
+  double unactuated_mass_scale{NAN};
+  // -------------------------- CPP only --------------------------
   double gradient_lstsq_tolerance{2e-2};
 };
+
+/*
+ * Denotes whether the indices are those of a configuration vector of a model
+ * into the configuration vector of the system, or those of a velocity vector
+ * of a model into the velocity vector of the system.
+ */
+enum class ModelIndicesMode { kQ, kV };
 
 class QuasistaticSimulator {
 public:
@@ -74,13 +132,11 @@ public:
   GetPositions(drake::multibody::ModelInstanceIndex model) const;
 
   void Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-            const ModelInstanceIndexToVecMap &tau_ext_dict, const double h,
-            const double contact_detection_tolerance,
-            const GradientMode gradient_mode,
-            const double unactuated_mass_scale);
+            const ModelInstanceIndexToVecMap &tau_ext_dict,
+            const QuasistaticSimParameters &params);
 
   void Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-            const ModelInstanceIndexToVecMap &tau_ext_dict, const double h);
+            const ModelInstanceIndexToVecMap &tau_ext_dict);
 
   void GetGeneralizedForceFromExternalSpatialForce(
       const std::vector<drake::multibody::ExternallyAppliedSpatialForce<double>>
@@ -193,8 +249,8 @@ private:
   [[nodiscard]] std::unique_ptr<drake::multibody::ModelInstanceIndex>
       FindModelForBody(drake::multibody::BodyIndex) const;
 
-  void CalcJacobianAndPhi(const double contact_detection_tol, int *n_c_ptr,
-                          int *n_f_ptr, Eigen::VectorXd *phi_ptr,
+  void CalcJacobianAndPhi(const double contact_detection_tol,
+                          Eigen::VectorXd *phi_ptr,
                           Eigen::VectorXd *phi_constraints_ptr,
                           Eigen::MatrixXd *Jn_ptr,
                           Eigen::MatrixXd *J_ptr) const;
@@ -207,7 +263,7 @@ private:
                           drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
                           drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
 
-  void FormQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
+  void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
                     const double h, Eigen::MatrixXd *Q_ptr,
@@ -221,24 +277,71 @@ private:
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-                           const int n_c, const int n_d, const int n_f) const;
+                           const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
   GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
 
+  void UpdateQdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                        const QuasistaticSimParameters &params,
+                        ModelInstanceIndexToVecMap *q_dict_ptr) const;
+
+  void CalcPyramidMatrices(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                           const ModelInstanceIndexToVecMap &tau_ext_dict,
+                           const QuasistaticSimParameters &params,
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
+                           Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
+                           Eigen::VectorXd *phi,
+                           Eigen::VectorXd *phi_constraints) const;
+
+  void StepForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                     const Eigen::Ref<const Eigen::MatrixXd> &J,
+                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                     const QuasistaticSimParameters &params,
+                     ModelInstanceIndexToVecMap *q_dict_ptr,
+                     Eigen::VectorXd *v_star_ptr,
+                     Eigen::VectorXd *beta_star_ptr);
+
+  void StepForwardLogPyramid(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const Eigen::Ref<const Eigen::MatrixXd> &J,
+      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
+
+  void BackwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                  const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                  const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                  const Eigen::Ref<const Eigen::MatrixXd> &J,
+                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                  const ModelInstanceIndexToVecMap &q_dict,
+                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                  const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+                  const QuasistaticSimParameters &params);
+
+  void BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                  const Eigen::Ref<const Eigen::MatrixXd> &J,
+                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                  const ModelInstanceIndexToVecMap &q_dict,
+                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                  const QuasistaticSimParameters &params);
+
   QuasistaticSimParameters sim_params_;
 
-  // QP solver.
-  std::unique_ptr<drake::solvers::GurobiSolver> solver_;
+  // Solvers.
+  std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
+  std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
   drake::solvers::SolverOptions solver_options_;
 
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
-  std::unique_ptr<QpDerivatives> dqp_;
-  std::unique_ptr<QpDerivativesActive> dqp_active_;
+  std::unique_ptr<QpDerivativesActive> dqp_;
   Eigen::MatrixXd Dq_nextDq_;
   Eigen::MatrixXd Dq_nextDqa_cmd_;
 

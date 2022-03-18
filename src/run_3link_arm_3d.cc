@@ -20,11 +20,12 @@ const string kModelDirectivePath =
 
 int main() {
   QuasistaticSimParameters sim_params;
+  sim_params.h = 0.1;
   sim_params.gravity = Vector3d(0, 0, -10);
   sim_params.nd_per_contact = 4;
   sim_params.contact_detection_tolerance = INFINITY;
   sim_params.is_quasi_dynamic = true;
-  sim_params.gradient_from_active_constraints = true;
+  sim_params.gradient_mode = GradientMode::kBOnly;
 
   VectorXd  Kp;
   Kp.resize(3);
@@ -69,7 +70,7 @@ int main() {
 
   auto t_start = std::chrono::steady_clock::now();
   auto result1 =
-      q_sim_batch.CalcBundledBTrjScalarStd(x_batch, u_batch, 0.1, 0.1,
+      q_sim_batch.CalcBundledBTrjScalarStd(x_batch, u_batch, 0.1, sim_params,
                                            n_samples, 1);
   auto t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrjScalarStd wall time ms: "
@@ -79,7 +80,7 @@ int main() {
        << endl;
 
   t_start = std::chrono::steady_clock::now();
-  auto result2 = q_sim_batch.CalcBundledBTrjDirect(x_batch, u_batch, 0.1, 0.1,
+  auto result2 = q_sim_batch.CalcBundledBTrjDirect(x_batch, u_batch, 0.1, sim_params,
                                                    n_samples, 1);
   t_end = std::chrono::steady_clock::now();
   cout << "CalcBundledBTrjDirect wall time ms: "
