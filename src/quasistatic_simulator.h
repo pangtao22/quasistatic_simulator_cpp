@@ -14,6 +14,9 @@
 
 using ModelInstanceIndexToVecMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
+using ModelInstanceIndexToVecAdMap =
+    std::unordered_map<drake::multibody::ModelInstanceIndex,
+                       drake::AutoDiffVecXd>;
 using ModelInstanceIndexToMatrixMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::MatrixXd>;
 using ModelInstanceNameToIndexMap =
@@ -122,6 +125,8 @@ public:
 
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
   void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
+  void UpdateMbpAdPositions(const ModelInstanceIndexToVecAdMap &q_dict);
+  void UpdateMbpAdPositions(const Eigen::Ref<const drake::AutoDiffVecXd> &q);
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
   [[nodiscard]] Eigen::VectorXd GetMbpPositionsAsVec() const {
@@ -249,19 +254,27 @@ private:
   [[nodiscard]] std::unique_ptr<drake::multibody::ModelInstanceIndex>
       FindModelForBody(drake::multibody::BodyIndex) const;
 
-  void CalcJacobianAndPhi(const double contact_detection_tol,
-                          Eigen::VectorXd *phi_ptr,
-                          Eigen::VectorXd *phi_constraints_ptr,
-                          Eigen::MatrixXd *Jn_ptr,
-                          Eigen::MatrixXd *J_ptr) const;
+  template <class T>
+  void CalcJacobianAndPhi(const drake::multibody::MultibodyPlant<T> *plant,
+                          const drake::geometry::SceneGraph<T> *sg,
+                          const drake::systems::Context<T> *context_plant,
+                          const drake::geometry::QueryObject<T> *query_object,
+                          const double contact_detection_tol,
+                          drake::VectorX<T> *phi_ptr,
+                          drake::VectorX<T> *phi_constraints_ptr,
+                          drake::MatrixX<T> *Jn_ptr,
+                          drake::MatrixX<T> *J_ptr) const;
 
-  void UpdateJacobianRows(const drake::multibody::BodyIndex &body_idx,
-                          const Eigen::Ref<const Eigen::Vector3d> &pC_Body,
-                          const Eigen::Ref<const Eigen::Vector3d> &n_W,
-                          const Eigen::Ref<const Eigen::Matrix3Xd> &d_W,
-                          int i_c, int n_d, int i_f_start,
-                          drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
-                          drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
+  template <class T>
+  static void
+  UpdateJacobianRows(const drake::multibody::MultibodyPlant<T> *plant,
+                     const drake::systems::Context<T> *context_plant,
+                     const drake::multibody::BodyIndex &body_idx,
+                     const drake::VectorX<T> &pC_Body,
+                     const drake::VectorX<T> &n_W, const drake::MatrixX<T> &d_W,
+                     size_t i_c, size_t n_d, size_t i_f_start,
+                     drake::EigenPtr<drake::MatrixX<T>> Jn_ptr,
+                     drake::EigenPtr<drake::MatrixX<T>> Jf_ptr);
 
   void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
@@ -324,12 +337,13 @@ private:
                   const Eigen::Ref<const Eigen::VectorXd> &beta_star,
                   const QuasistaticSimParameters &params);
 
-  void BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                  const Eigen::Ref<const Eigen::MatrixXd> &J,
-                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                  const ModelInstanceIndexToVecMap &q_dict,
-                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                  const QuasistaticSimParameters &params);
+  void
+  BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                     const Eigen::Ref<const Eigen::MatrixXd> &J,
+                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                     const ModelInstanceIndexToVecMap &q_dict,
+                     const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                     const QuasistaticSimParameters &params);
 
   QuasistaticSimParameters sim_params_;
 
@@ -350,13 +364,26 @@ private:
   drake::multibody::MultibodyPlant<double> *plant_{nullptr};
   drake::geometry::SceneGraph<double> *sg_{nullptr};
 
+  // AutoDiff Systems.
+  std::unique_ptr<drake::systems::Diagram<drake::AutoDiffXd>> diagram_ad_;
+  const drake::multibody::MultibodyPlant<drake::AutoDiffXd> *plant_ad_{nullptr};
+  const drake::geometry::SceneGraph<drake::AutoDiffXd> *sg_ad_{nullptr};
+
   // Contexts.
   std::unique_ptr<drake::systems::Context<double>> context_; // Diagram.
   drake::systems::Context<double> *context_plant_{nullptr};
   drake::systems::Context<double> *context_sg_{nullptr};
 
+  // AutoDiff contexts
+  std::unique_ptr<drake::systems::Context<drake::AutoDiffXd>> context_ad_;
+  drake::systems::Context<drake::AutoDiffXd> *context_plant_ad_{nullptr};
+  drake::systems::Context<drake::AutoDiffXd> *context_sg_ad_{nullptr};
+
   // Internal state (for interfacing with QuasistaticSystem).
   const drake::geometry::QueryObject<double> *query_object_{nullptr};
+  const drake::geometry::QueryObject<drake::AutoDiffXd> *query_object_ad_{
+      nullptr};
+
   drake::multibody::ContactResults<double> contact_results_;
 
   // MBP introspection.

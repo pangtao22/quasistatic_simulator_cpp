@@ -10,6 +10,9 @@
 #include "get_model_paths.h"
 #include "quasistatic_simulator.h"
 
+using drake::AutoDiffXd;
+using drake::MatrixX;
+using drake::VectorX;
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
@@ -180,6 +183,23 @@ QuasistaticSimulator::QuasistaticSimulator(
     i++;
   }
   min_K_a_ = min_stiffness_vec.minCoeff();
+
+  // AutoDiff plants.
+  diagram_ad_ =
+      drake::systems::System<double>::ToAutoDiffXd<drake::systems::Diagram>(
+          *diagram_);
+  plant_ad_ =
+      dynamic_cast<const drake::multibody::MultibodyPlant<AutoDiffXd> *>(
+          &(diagram_ad_->GetSubsystemByName(plant_->get_name())));
+  sg_ad_ = dynamic_cast<const drake::geometry::SceneGraph<drake::AutoDiffXd> *>(
+      &(diagram_ad_->GetSubsystemByName(sg_->get_name())));
+
+  // AutoDiff contexts.
+  context_ad_ = diagram_ad_->CreateDefaultContext();
+  context_plant_ad_ =
+      &(diagram_ad_->GetMutableSubsystemContext(*plant_ad_, context_ad_.get()));
+  context_sg_ad_ =
+      &(diagram_ad_->GetMutableSubsystemContext(*sg_ad_, context_ad_.get()));
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -251,6 +271,26 @@ void QuasistaticSimulator::UpdateMbpPositions(
           *context_sg_));
 }
 
+void QuasistaticSimulator::UpdateMbpAdPositions(
+    const ModelInstanceIndexToVecAdMap &q_dict) {
+  for (const auto &model : models_all_) {
+    plant_ad_->SetPositions(context_plant_ad_, model, q_dict.at(model));
+  }
+
+  query_object_ad_ =
+      &(sg_ad_->get_query_output_port()
+            .Eval<drake::geometry::QueryObject<AutoDiffXd>>(*context_sg_ad_));
+}
+
+void QuasistaticSimulator::UpdateMbpAdPositions(
+    const Eigen::Ref<const drake::AutoDiffVecXd> &q) {
+  plant_ad_->SetPositions(context_plant_ad_, q);
+
+  query_object_ad_ =
+      &(sg_ad_->get_query_output_port()
+            .Eval<drake::geometry::QueryObject<AutoDiffXd>>(*context_sg_ad_));
+}
+
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
   ModelInstanceIndexToVecMap q_dict;
   for (const auto &model : models_all_) {
@@ -279,40 +319,48 @@ std::unique_ptr<ModelInstanceIndex> QuasistaticSimulator::FindModelForBody(
   return nullptr;
 }
 
+template <class T>
 void QuasistaticSimulator::UpdateJacobianRows(
+    const drake::multibody::MultibodyPlant<T> *plant,
+    const drake::systems::Context<T> *context_plant,
     const drake::multibody::BodyIndex &body_idx,
-    const Eigen::Ref<const Eigen::Vector3d> &pC_Body,
-    const Eigen::Ref<const Eigen::Vector3d> &n_W,
-    const Eigen::Ref<const Eigen::Matrix3Xd> &d_W, int i_c, int n_d,
-    int i_f_start, drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
-    drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const {
-  Eigen::Matrix3Xd Ji(3, plant_->num_velocities());
-  const auto &frameB = plant_->get_body(body_idx).body_frame();
-  plant_->CalcJacobianTranslationalVelocity(
-      *context_plant_, drake::multibody::JacobianWrtVariable::kV, frameB,
-      pC_Body, plant_->world_frame(), plant_->world_frame(), &Ji);
+    const drake::VectorX<T> &pC_Body, const drake::VectorX<T> &n_W,
+    const drake::MatrixX<T> &d_W, size_t i_c, size_t n_d, size_t i_f_start,
+    drake::EigenPtr<drake::MatrixX<T>> Jn_ptr,
+    drake::EigenPtr<drake::MatrixX<T>> Jf_ptr) {
+  drake::Matrix3X<T> Ji(3, plant->num_velocities());
+  const auto &frameB = plant->get_body(body_idx).body_frame();
+  plant->CalcJacobianTranslationalVelocity(
+      *context_plant, drake::multibody::JacobianWrtVariable::kV, frameB,
+      pC_Body, plant->world_frame(), plant->world_frame(), &Ji);
 
   (*Jn_ptr).row(i_c) += n_W.transpose() * Ji;
-  for (int i = 0; i < n_d; i++) {
+  for (size_t i = 0; i < n_d; i++) {
     (*Jf_ptr).row(i + i_f_start) += d_W.col(i).transpose() * Ji;
   }
 }
 
+template <class T>
 void QuasistaticSimulator::CalcJacobianAndPhi(
-    const double contact_detection_tol, VectorXd *phi_ptr,
-    VectorXd *phi_constraints_ptr, MatrixXd *Jn_ptr, MatrixXd *J_ptr) const {
-  VectorXd &phi = *phi_ptr;
-  VectorXd &phi_constraints = *phi_constraints_ptr;
-  MatrixXd &Jn = *Jn_ptr;
-  MatrixXd &J = *J_ptr;
+    const drake::multibody::MultibodyPlant<T> *plant,
+    const drake::geometry::SceneGraph<T> *sg,
+    const drake::systems::Context<T> *context_plant,
+    const drake::geometry::QueryObject<T> *query_object,
+    const double contact_detection_tol, drake::VectorX<T> *phi_ptr,
+    drake::VectorX<T> *phi_constraints_ptr, drake::MatrixX<T> *Jn_ptr,
+    drake::MatrixX<T> *J_ptr) const {
+  VectorX<T> &phi = *phi_ptr;
+  VectorX<T> &phi_constraints = *phi_constraints_ptr;
+  MatrixX<T> &Jn = *Jn_ptr;
+  MatrixX<T> &J = *J_ptr;
 
   // Collision queries.
-  const auto &sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
+  const auto &sdps = query_object->ComputeSignedDistancePairwiseClosestPoints(
       contact_detection_tol);
 
   // Contact Jacobians.
   const auto n_c = sdps.size();
-  const int n_v = plant_->num_velocities();
+  const int n_v = plant->num_velocities();
   const int n_d = sim_params_.nd_per_contact;
   const auto n_f = n_d * n_c;
 
@@ -320,10 +368,10 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
   Jn.resize(n_c, n_v);
   Jn.setZero();
 
-  VectorXd U(n_c);
-  MatrixXd Jf(n_f, n_v);
+  VectorX<T> U(n_c);
+  MatrixX<T> Jf(n_f, n_v);
   Jf.setZero();
-  const auto &inspector = sg_->model_inspector();
+  const auto &inspector = sg->model_inspector();
 
   int i_f_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -345,20 +393,20 @@ void QuasistaticSimulator::CalcJacobianAndPhi(
       const auto d_A_W = CalcTangentVectors(n_A_W, n_d);
       const auto n_B_W = -n_A_W;
       const auto d_B_W = -d_A_W;
-      UpdateJacobianRows(bodyA_idx, p_ACa_A, n_A_W, d_A_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
-      UpdateJacobianRows(bodyB_idx, p_BCb_B, n_B_W, d_B_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
+      UpdateJacobianRows<T>(plant, context_plant, bodyA_idx, p_ACa_A, n_A_W,
+                            d_A_W, i_c, n_d, i_f_start, &Jn, &Jf);
+      UpdateJacobianRows<T>(plant, context_plant, bodyB_idx, p_BCb_B, n_B_W,
+                            d_B_W, i_c, n_d, i_f_start, &Jn, &Jf);
     } else if (model_A_ptr) {
       const auto n_A_W = sdp.nhat_BA_W;
       const auto d_A_W = CalcTangentVectors(n_A_W, n_d);
-      UpdateJacobianRows(bodyA_idx, p_ACa_A, n_A_W, d_A_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
+      UpdateJacobianRows<T>(plant, context_plant, bodyA_idx, p_ACa_A, n_A_W,
+                            d_A_W, i_c, n_d, i_f_start, &Jn, &Jf);
     } else if (model_B_ptr) {
       const auto n_B_W = -sdp.nhat_BA_W;
       const auto d_B_W = CalcTangentVectors(n_B_W, n_d);
-      UpdateJacobianRows(bodyB_idx, p_BCb_B, n_B_W, d_B_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
+      UpdateJacobianRows<T>(plant, context_plant, bodyB_idx, p_BCb_B, n_B_W,
+                            d_B_W, i_c, n_d, i_f_start, &Jn, &Jf);
     } else {
       throw std::runtime_error(
           "One body in a contact pair is not in body_indices_");
@@ -482,7 +530,8 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
     Eigen::VectorXd *tau_h, Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
     Eigen::VectorXd *phi, Eigen::VectorXd *phi_constraints) const {
-  CalcJacobianAndPhi(params.contact_detection_tolerance, phi, phi_constraints,
+  CalcJacobianAndPhi(plant_, sg_, context_plant_, query_object_,
+                     params.contact_detection_tolerance, phi, phi_constraints,
                      Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
@@ -563,13 +612,13 @@ void QuasistaticSimulator::BackwardQp(
   throw std::runtime_error("Invalid gradient_mode.");
 }
 
-void QuasistaticSimulator::BackwardLogPyramid(const Eigen::Ref<const
-    Eigen::MatrixXd> &Q,
-                        const Eigen::Ref<const Eigen::MatrixXd> &J,
-                        const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                        const ModelInstanceIndexToVecMap &q_dict,
-                        const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                        const QuasistaticSimParameters &params) {
+void QuasistaticSimulator::BackwardLogPyramid(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const QuasistaticSimParameters &params) {
   if (params.gradient_mode == GradientMode::kNone) {
     return;
   }
@@ -583,7 +632,7 @@ void QuasistaticSimulator::BackwardLogPyramid(const Eigen::Ref<const
     MatrixXd Dv_nextDb(n_v_, n_v_);
     Dv_nextDb.setIdentity();
     Dv_nextDb *= -1;
-    H.llt().solveInPlace(Dv_nextDb);  // H is positive definite.
+    H.llt().solveInPlace(Dv_nextDb); // H is positive definite.
 
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
