@@ -106,8 +106,11 @@ void QpDerivativesActive::UpdateProblem(
   if (not calc_G_grad) {
     return;
   }
+
   const MatrixXd& A_12 = A.topRightCorner(n_z, n_nu);
-  DzDvecG_ =
+  DzDvecG_active_ =
       -Eigen::kroneckerProduct(A_11, lambda_star_active.transpose()).eval();
-  DzDvecG_ -= Eigen::kroneckerProduct(z_star.transpose(), A_12).eval();
+  DzDvecG_active_ -= Eigen::kroneckerProduct(z_star.transpose(), A_12).eval();
+
+  active_row_indices_ = lambda_star_active_indices;
 }
