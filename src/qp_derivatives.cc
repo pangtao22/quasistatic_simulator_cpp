@@ -1,7 +1,8 @@
-#include <iostream>
 #include <cmath>
-#include <sstream>
+#include <iostream>
 #include <spdlog/spdlog.h>
+#include <sstream>
+#include <unsupported/Eigen/KroneckerProduct>
 
 #include "qp_derivatives.h"
 
@@ -57,27 +58,28 @@ void QpDerivativesActive::UpdateProblem(
     const Eigen::Ref<const Eigen::MatrixXd> &e,
     const Eigen::Ref<const Eigen::VectorXd> &z_star,
     const Eigen::Ref<const Eigen::VectorXd> &lambda_star,
-    double lambda_threshold) {
+    double lambda_threshold, bool calc_G_grad) {
   const int n_z = z_star.size();
   const int n_l = lambda_star.size();
 
-  std::vector<double> nu_star_v;
-  std::vector<int> nu_star_indices;
+  std::vector<double> lambda_star_active_vec;
+  std::vector<int> lambda_star_active_indices;
 
   // Find active constraints with large lagrange multipliers.
   for (int i = 0; i < n_l; i++) {
     double lambda_star_i = lambda_star[i];
     if (lambda_star_i > lambda_threshold) {
-      nu_star_v.push_back(lambda_star_i);
-      nu_star_indices.push_back(i);
+      lambda_star_active_vec.push_back(lambda_star_i);
+      lambda_star_active_indices.push_back(i);
     }
   }
 
-  const int n_nu = nu_star_v.size();
-  auto nu_star = Eigen::Map<VectorXd>(nu_star_v.data(), n_nu);
+  const int n_nu = lambda_star_active_vec.size();
+  auto lambda_star_active =
+      Eigen::Map<VectorXd>(lambda_star_active_vec.data(), n_nu);
   MatrixXd B(n_nu, n_z);
   for (int i = 0; i < n_nu; i++) {
-    B.row(i) = G.row(nu_star_indices[i]);
+    B.row(i) = G.row(lambda_star_active_indices[i]);
   }
 
   // Form A_inv and find A using pseudo-inverse.
@@ -88,16 +90,24 @@ void QpDerivativesActive::UpdateProblem(
   A_inv.bottomLeftCorner(n_nu, n_z) = B;
 
   const auto I = MatrixXd::Identity(n_z + n_nu, n_z + n_nu);
-  const MatrixXd A =
-      A_inv.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(I);
+  auto cod = Eigen::CompleteOrthogonalDecomposition<MatrixXd>(A_inv);
+  const MatrixXd A = cod.solve(I);
 
   check_solution_error((A_inv * A - I).norm(), n_z + n_l);
-
-  DzDb_ = -A.topLeftCorner(n_z, n_z);
+  const MatrixXd &A_11 = A.topLeftCorner(n_z, n_z);
+  DzDb_ = -A_11;
 
   const MatrixXd DzDe_active = A.topRightCorner(n_z, n_nu);
   DzDe_ = MatrixXd::Zero(n_z, n_l);
   for (int i = 0; i < n_nu; i++) {
-    DzDe_.col(nu_star_indices[i]) = DzDe_active.col(i);
+    DzDe_.col(lambda_star_active_indices[i]) = DzDe_active.col(i);
   }
+
+  if (not calc_G_grad) {
+    return;
+  }
+  const MatrixXd& A_12 = A.topRightCorner(n_z, n_nu);
+  DzDvecG_ =
+      -Eigen::kroneckerProduct(A_11, lambda_star_active.transpose()).eval();
+  DzDvecG_ -= Eigen::kroneckerProduct(z_star.transpose(), A_12).eval();
 }
