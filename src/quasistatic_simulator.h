@@ -21,6 +21,8 @@ using ModelInstanceIndexToMatrixMap =
     std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::MatrixXd>;
 using ModelInstanceNameToIndexMap =
     std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
+using CollisionPair =
+    std::pair<drake::geometry::GeometryId, drake::geometry::GeometryId>;
 
 /*
  * Gradient computation mode of QuasistaticSimulator.
@@ -125,8 +127,11 @@ public:
 
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
   void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
-  void UpdateMbpAdPositions(const ModelInstanceIndexToVecAdMap &q_dict);
-  void UpdateMbpAdPositions(const Eigen::Ref<const drake::AutoDiffVecXd> &q);
+  // These methods are naturally const because context will eventually be
+  // moved outside this class.
+  void UpdateMbpAdPositions(const ModelInstanceIndexToVecAdMap &q_dict) const;
+  void
+  UpdateMbpAdPositions(const Eigen::Ref<const drake::AutoDiffVecXd> &q) const;
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
   [[nodiscard]] Eigen::VectorXd GetMbpPositionsAsVec() const {
@@ -255,15 +260,14 @@ private:
       FindModelForBody(drake::multibody::BodyIndex) const;
 
   template <class T>
-  void CalcJacobianAndPhi(const drake::multibody::MultibodyPlant<T> *plant,
-                          const drake::geometry::SceneGraph<T> *sg,
-                          const drake::systems::Context<T> *context_plant,
-                          const drake::geometry::QueryObject<T> *query_object,
-                          const double contact_detection_tol,
-                          drake::VectorX<T> *phi_ptr,
-                          drake::VectorX<T> *phi_constraints_ptr,
-                          drake::MatrixX<T> *Jn_ptr,
-                          drake::MatrixX<T> *J_ptr) const;
+  void CalcJacobianAndPhi(
+      const drake::multibody::MultibodyPlant<T> *plant,
+      const drake::geometry::SceneGraph<T> *sg,
+      const drake::systems::Context<T> *context_plant,
+      const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
+      const int n_d, drake::VectorX<T> *phi_ptr,
+      drake::VectorX<T> *phi_constraints_ptr, drake::MatrixX<T> *Jn_ptr,
+      drake::MatrixX<T> *J_ptr) const;
 
   template <class T>
   static void
@@ -288,11 +292,15 @@ private:
                            const ModelInstanceIndexToVecMap &q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+                           const ModelInstanceIndexToVecMap &q_dict,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
-  GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+  CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
+  CalcSignedDistancePairsFromCollisionPairs() const;
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
@@ -333,6 +341,7 @@ private:
                   const Eigen::Ref<const Eigen::MatrixXd> &J,
                   const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
                   const ModelInstanceIndexToVecMap &q_dict,
+                  const ModelInstanceIndexToVecMap &q_dict_next,
                   const Eigen::Ref<const Eigen::VectorXd> &v_star,
                   const Eigen::Ref<const Eigen::VectorXd> &beta_star,
                   const QuasistaticSimParameters &params);
@@ -376,13 +385,15 @@ private:
 
   // AutoDiff contexts
   std::unique_ptr<drake::systems::Context<drake::AutoDiffXd>> context_ad_;
-  drake::systems::Context<drake::AutoDiffXd> *context_plant_ad_{nullptr};
-  drake::systems::Context<drake::AutoDiffXd> *context_sg_ad_{nullptr};
+  mutable drake::systems::Context<drake::AutoDiffXd> *context_plant_ad_{
+      nullptr};
+  mutable drake::systems::Context<drake::AutoDiffXd> *context_sg_ad_{nullptr};
 
   // Internal state (for interfacing with QuasistaticSystem).
   const drake::geometry::QueryObject<double> *query_object_{nullptr};
-  const drake::geometry::QueryObject<drake::AutoDiffXd> *query_object_ad_{
-      nullptr};
+  mutable std::vector<CollisionPair> collision_pairs_;
+  mutable const drake::geometry::QueryObject<drake::AutoDiffXd>
+      *query_object_ad_{nullptr};
 
   drake::multibody::ContactResults<double> contact_results_;
 
