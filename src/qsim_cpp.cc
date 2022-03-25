@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 
 #include "batch_quasistatic_simulator.h"
+#include "qp_derivatives.h"
 #include "quasistatic_simulator.h"
 
 namespace py = pybind11;
@@ -14,13 +15,13 @@ PYBIND11_MODULE(qsim_cpp, m) {
       .value("kAB", GradientMode::kAB);
 
   py::enum_<ForwardDynamicsMode>(m, "ForwardDynamicsMode")
-  .value("kQpMp", ForwardDynamicsMode::kQpMp)
-  .value("kQpCvx", ForwardDynamicsMode::kQpCvx)
-  .value("kSocpMp", ForwardDynamicsMode::kSocpMp)
-  .value("kLogPyramidMp", ForwardDynamicsMode::kLogPyramidMp)
-  .value("kLogPyramidCvx", ForwardDynamicsMode::kLogPyramidCvx)
-  .value("kLogIcecreamMp", ForwardDynamicsMode::kLogIcecreamMp)
-  .value("kLogIcecreamCvx", ForwardDynamicsMode::kLogIcecreamCvx);
+      .value("kQpMp", ForwardDynamicsMode::kQpMp)
+      .value("kQpCvx", ForwardDynamicsMode::kQpCvx)
+      .value("kSocpMp", ForwardDynamicsMode::kSocpMp)
+      .value("kLogPyramidMp", ForwardDynamicsMode::kLogPyramidMp)
+      .value("kLogPyramidCvx", ForwardDynamicsMode::kLogPyramidCvx)
+      .value("kLogIcecreamMp", ForwardDynamicsMode::kLogIcecreamMp)
+      .value("kLogIcecreamCvx", ForwardDynamicsMode::kLogIcecreamCvx);
 
   {
     using Class = QuasistaticSimParameters;
@@ -37,7 +38,11 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def_readwrite("log_barrier_weight", &Class::log_barrier_weight)
         .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale)
         .def_readwrite("gradient_lstsq_tolerance",
-                       &Class::gradient_lstsq_tolerance);
+                       &Class::gradient_lstsq_tolerance)
+        .def("__copy__", [](const Class &self) { return Class(self); })
+        .def(
+            "__deepcopy__",
+            [](const Class &self, py::dict) { return Class(self); }, "memo");
   }
 
   {
@@ -57,15 +62,13 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("step",
              py::overload_cast<const ModelInstanceIndexToVecMap &,
                                const ModelInstanceIndexToVecMap &,
-                               const QuasistaticSimParameters &>(
-                 &Class::Step),
+                               const QuasistaticSimParameters &>(&Class::Step),
              py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"),
              py::arg("sim_params"))
         .def(
             "step_default",
             py::overload_cast<const ModelInstanceIndexToVecMap &,
-                              const ModelInstanceIndexToVecMap &>(
-                &Class::Step),
+                              const ModelInstanceIndexToVecMap &>(&Class::Step),
             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"))
         .def("calc_tau_ext", &Class::CalcTauExt)
         .def("get_model_instance_name_to_index_map",
@@ -113,5 +116,15 @@ PYBIND11_MODULE(qsim_cpp, m) {
              &Class::get_num_max_parallel_executions)
         .def("set_num_max_parallel_executions",
              &Class::set_num_max_parallel_executions);
+  }
+
+  {
+    using Class = QpDerivativesActive;
+    py::class_<Class>(m, "QpDerivativesActive")
+        .def(py::init<double>(), py::arg("tol"))
+        .def("UpdateProblem", &Class::UpdateProblem)
+        .def("get_DzDe", &Class::get_DzDe)
+        .def("get_DzDb", &Class::get_DzDb)
+        .def("get_DzDvecG", &Class::get_DzDvecG);
   }
 }
