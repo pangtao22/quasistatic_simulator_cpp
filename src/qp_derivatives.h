@@ -36,6 +36,13 @@ public:
 class QpDerivativesActive : public QpDerivativesBase {
 public:
   explicit QpDerivativesActive(double tol) : QpDerivativesBase(tol){};
+
+  /*
+   * For computing the derivatives of contact dynamics formulated as a QP,
+   * calc_G_grad is false when only the derivatives w.r.t. q_a_cmd
+   * (actuation) is needed. In contrast, it is true when the derivatives
+   * w.r.t. q (state) is also needed.
+   */
   void UpdateProblem(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                      const Eigen::Ref<const Eigen::VectorXd> &b,
                      const Eigen::Ref<const Eigen::MatrixXd> &G,
@@ -45,10 +52,10 @@ public:
                      double lambda_threshold, bool calc_G_grad);
   [[nodiscard]] std::pair<const Eigen::MatrixXd &, const std::vector<int> &>
   get_DzDvecG_active() const {
-    return {DzDvecG_active_, active_row_indices_};
+    return {DzDvecG_active_, lambda_star_active_indices_};
   }
 
 private:
   Eigen::MatrixXd DzDvecG_active_;
-  std::vector<int> active_row_indices_;
+  std::vector<int> lambda_star_active_indices_;
 };

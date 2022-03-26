@@ -63,14 +63,14 @@ void QpDerivativesActive::UpdateProblem(
   const int n_l = lambda_star.size();
 
   std::vector<double> lambda_star_active_vec;
-  std::vector<int> lambda_star_active_indices;
+  lambda_star_active_indices_.clear();
 
   // Find active constraints with large lagrange multipliers.
   for (int i = 0; i < n_l; i++) {
     double lambda_star_i = lambda_star[i];
     if (lambda_star_i > lambda_threshold) {
       lambda_star_active_vec.push_back(lambda_star_i);
-      lambda_star_active_indices.push_back(i);
+      lambda_star_active_indices_.push_back(i);
     }
   }
 
@@ -79,7 +79,7 @@ void QpDerivativesActive::UpdateProblem(
       Eigen::Map<VectorXd>(lambda_star_active_vec.data(), n_nu);
   MatrixXd B(n_nu, n_z);
   for (int i = 0; i < n_nu; i++) {
-    B.row(i) = G.row(lambda_star_active_indices[i]);
+    B.row(i) = G.row(lambda_star_active_indices_[i]);
   }
 
   // Form A_inv and find A using pseudo-inverse.
@@ -100,17 +100,20 @@ void QpDerivativesActive::UpdateProblem(
   const MatrixXd DzDe_active = A.topRightCorner(n_z, n_nu);
   DzDe_ = MatrixXd::Zero(n_z, n_l);
   for (int i = 0; i < n_nu; i++) {
-    DzDe_.col(lambda_star_active_indices[i]) = DzDe_active.col(i);
+    DzDe_.col(lambda_star_active_indices_[i]) = DzDe_active.col(i);
   }
 
   if (not calc_G_grad) {
     return;
   }
 
+  if (lambda_star_active_indices_.empty()) {
+    DzDvecG_active_.resize(n_z, 0);
+    return;
+  }
+
   const MatrixXd& A_12 = A.topRightCorner(n_z, n_nu);
   DzDvecG_active_ =
-      -Eigen::kroneckerProduct(A_11, lambda_star_active.transpose()).eval();
-  DzDvecG_active_ -= Eigen::kroneckerProduct(z_star.transpose(), A_12).eval();
-
-  active_row_indices_ = lambda_star_active_indices;
+      -Eigen::kroneckerProduct(A_11, lambda_star_active.transpose());
+  DzDvecG_active_ -= Eigen::kroneckerProduct(z_star.transpose(), A_12);
 }

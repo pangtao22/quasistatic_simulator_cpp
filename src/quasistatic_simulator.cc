@@ -847,6 +847,29 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
   return h * Dq_dot_nextDqa_cmd;
 }
 
+/*
+ * Arranges DGactiveDq[i] into a (n_lambda_active, n_v) matrix.
+ */
+std::vector<MatrixXd>
+CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &J_ad,
+               const std::vector<int> &lambda_star_active_indices) {
+  const auto n_v = J_ad.cols();
+  const auto n_q = J_ad(0, 0).derivatives().size();
+  const auto n_lambda_active = lambda_star_active_indices.size();
+
+  vector<MatrixXd> DGactiveDq;
+  for (int i_q = 0; i_q < n_q; i_q++) {
+    DGactiveDq.emplace_back(n_lambda_active, n_v);
+    for (int i = 0; i < n_lambda_active; i++) {
+      for (int j = 0; j < n_v; j++) {
+        DGactiveDq[i_q](i, j) =
+            J_ad(lambda_star_active_indices[i], j).derivatives()[i_q];
+      }
+    }
+  }
+  return DGactiveDq;
+}
+
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
@@ -854,18 +877,9 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_d) const {
   const auto n_c = Jn.rows();
   const auto n_f = n_c * n_d;
-  /*----------------------------------------------------------------*/
-  const auto q = GetQVecFromDict(q_dict);
-  const auto q_ad = InitializeAutoDiff(q);
-  UpdateMbpAdPositions(q_ad);
-  const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
-  MatrixX<AutoDiffXd> Jn_ad, J_ad;
-  VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
-  CalcJacobianAndPhi<AutoDiffXd>(plant_ad_, sg_ad_, context_plant_ad_, sdps,
-                                 n_d, &phi_ad,
-                                 &phi_constraints_ad, &Jn_ad, &J_ad);
 
   /*----------------------------------------------------------------*/
+  // TODO: consider only active constraints.
   MatrixXd Dphi_constraints_Dq(n_f, n_v_);
   int i_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -893,8 +907,44 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   }
 
   /*----------------------------------------------------------------*/
-  const MatrixXd Dv_nextDq =
-      Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+  MatrixXd Dv_nextDq = Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+
+  /*----------------------------------------------------------------*/
+  // Compute Dv_nextDvecG from the KKT conditions of the QP.
+  const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
+      dqp_->get_DzDvecG_active();
+
+  if (not lambda_star_active_indices.empty()) {
+    // This is skipped if there is no contact.
+    // Compute DvecGDq using Autodiff through MBP.
+    const auto q = GetQVecFromDict(q_dict);
+    const auto q_ad = InitializeAutoDiff(q);
+    UpdateMbpAdPositions(q_ad);
+    const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
+    MatrixX<AutoDiffXd> Jn_ad, J_ad;
+    VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
+    CalcJacobianAndPhi<AutoDiffXd>(plant_ad_, sg_ad_, context_plant_ad_, sdps,
+                                   n_d, &phi_ad, &phi_constraints_ad, &Jn_ad,
+                                   &J_ad);
+
+    const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
+
+    const auto n_lambda_active = lambda_star_active_indices.size();
+    for (int i_v = 0; i_v < n_v_; i_v++) {
+      MatrixXd Dv_next_i_vDGactive(n_lambda_active, n_q_);
+      for (int i = 0; i < n_lambda_active; i++) {
+        for (int j = 0; j < n_q_; j++) {
+          Dv_next_i_vDGactive(i, j) =
+              Dv_nextDvecG_active(i_v, n_lambda_active * j + i);
+        }
+      }
+      for (int i_q = 0; i_q < n_q_; i_q++) {
+        Dv_nextDq(i_v, i_q) +=
+            (Dv_next_i_vDGactive.array() * DGactiveDq[i_q].array()).sum();
+      }
+    }
+  }
+
   return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
 }
 
