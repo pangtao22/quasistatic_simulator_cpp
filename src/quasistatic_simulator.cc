@@ -54,7 +54,7 @@ void CreateMbp(
       *plant, nullptr, &parser);
 
   // Objects.
-  // Use a set to sort object names.
+  // Use a Set to sort object names.
   std::set<std::string> object_names;
   for (const auto &item : object_sdf_paths) {
     object_names.insert(item.first);
@@ -67,6 +67,7 @@ void CreateMbp(
   // Robots.
   for (const auto &[name, Kp] : robot_stiffness_str) {
     auto robot_model = (*plant)->GetModelInstanceByName(name);
+
     robot_models->insert(robot_model);
     (*robot_stiffness)[robot_model] = Kp;
   }
@@ -137,7 +138,9 @@ QuasistaticSimulator::QuasistaticSimulator(
 
   n_v_a_ = 0;
   for (const auto &model : models_actuated_) {
-    n_v_a_ += plant_->num_velocities(model);
+    auto n_v_a_i = plant_->num_velocities(model);
+    DRAKE_THROW_UNLESS(n_v_a_i == robot_stiffness_[model].size());
+    n_v_a_ += n_v_a_i;
   }
 
   n_v_u_ = 0;
