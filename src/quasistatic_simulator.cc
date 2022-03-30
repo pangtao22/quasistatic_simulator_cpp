@@ -79,12 +79,12 @@ void CreateMbp(
 template <class T>
 drake::Matrix3X<T> CalcTangentVectors(const Vector3<T> &normal,
                                       const size_t nd) {
-  Eigen::Vector3<T> n = normal.normalized();
-  Eigen::Vector4<T> n4(n.x(), n.y(), n.z(), 0);
-  Eigen::Matrix3X<T> tangents(3, nd);
+  Vector3<T> n = normal.normalized();
+  Vector4<T> n4(n.x(), n.y(), n.z(), 0);
+  Matrix3X<T> tangents(3, nd);
   if (nd == 2) {
     // Makes sure that dC is in the yz plane.
-    Eigen::Vector4<T> n_x4(1, 0, 0, 0);
+    Vector4<T> n_x4(1, 0, 0, 0);
     tangents.col(0) = n_x4.cross3(n4).head(3);
     tangents.col(1) = -tangents.col(0);
   } else {
