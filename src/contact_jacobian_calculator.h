@@ -36,7 +36,7 @@ public:
     return contact_pairs_[i_c].mu;
   }
 
-  void CalcJacobianAndPhi(
+  void CalcJacobianAndPhiQp(
       const drake::systems::Context<T> *context_plant,
       const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
       const int n_d, drake::VectorX<T> *phi_ptr,

@@ -11,9 +11,9 @@
 
 
 /*
- * Denotes whether the indices are those of a configuration vector of a model
- * into the configuration vector of the system, or those of a velocity vector
- * of a model into the velocity vector of the system.
+ * Denotes whether the indices are those of a model's configuration vector
+ * into the configuration vector of the system, or those of a model's velocity
+ * vector into the velocity vector of the system.
  */
 enum class ModelIndicesMode { kQ, kV };
 

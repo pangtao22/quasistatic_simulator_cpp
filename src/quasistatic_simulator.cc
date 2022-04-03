@@ -377,8 +377,8 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
   }
 
-  cjc_->CalcJacobianAndPhi(context_plant_, sdps, params.nd_per_contact, phi,
-                           phi_constraints, Jn, J);
+  cjc_->CalcJacobianAndPhiQp(context_plant_, sdps, params.nd_per_contact, phi,
+                             phi_constraints, Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
 }
@@ -760,8 +760,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
     MatrixX<AutoDiffXd> Jn_ad, J_ad;
     VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
-    cjc_ad_->CalcJacobianAndPhi(context_plant_ad_, sdps, n_d, &phi_ad,
-                                &phi_constraints_ad, &Jn_ad, &J_ad);
+    cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps, n_d, &phi_ad,
+                                  &phi_constraints_ad, &Jn_ad, &J_ad);
 
     const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
 

@@ -162,7 +162,7 @@ ContactJacobianCalculator<T>::GetMbpBodyFromGeometry(
 }
 
 template <class T>
-void ContactJacobianCalculator<T>::CalcJacobianAndPhi(
+void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     const drake::systems::Context<T> *context_plant,
     const vector<drake::geometry::SignedDistancePair<T>> &sdps, const int n_d,
     drake::VectorX<T> *phi_ptr, drake::VectorX<T> *phi_constraints_ptr,
