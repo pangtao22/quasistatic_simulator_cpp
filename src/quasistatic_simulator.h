@@ -1,113 +1,14 @@
 #pragma once
-#include <Eigen/Dense>
 #include <iostream>
-#include <string>
-#include <unordered_map>
 
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
-#include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/mosek_solver.h"
 
 #include "qp_derivatives.h"
+#include "contact_computer.h"
 
-using ModelInstanceIndexToVecMap =
-    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
-using ModelInstanceIndexToVecAdMap =
-    std::unordered_map<drake::multibody::ModelInstanceIndex,
-                       drake::AutoDiffVecXd>;
-using ModelInstanceIndexToMatrixMap =
-    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::MatrixXd>;
-using ModelInstanceNameToIndexMap =
-    std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
-using CollisionPair =
-    std::pair<drake::geometry::GeometryId, drake::geometry::GeometryId>;
-
-/*
- * Gradient computation mode of QuasistaticSimulator.
- * Using an analogy from torch, GradientMode is the mode when "backward()" is
- *  called, after the forward dynamics is done.
- * - kNone: do not compute gradient, just roll out the dynamics.
- * - kBOnly: only computes dfdu, where x_next = f(x, u).
- * - kAB: computes both dfdx and dfdu.
- */
-enum class GradientMode { kNone, kBOnly, kAB };
-
-enum class ForwardDynamicsMode {
-  kQpMp,
-  kQpCvx,
-  kSocpMp,
-  kLogPyramidMp,
-  kLogPyramidCvx,
-  kLogIcecreamMp,
-  kLogIcecreamCvx
-};
-
-/*
-h: simulation time step in seconds.
-gravity: 3-vector indicating the gravity feild in world frame.
- WARNING: it CANNOT be changed after the simulator object is constructed.
- TODO: differentiate gravity from other simulation parameters, which are not
-  ignored when calling QuasistaticSimulator.Step(...).
-nd_per_contact: int, number of extreme rays per contact point. Only
- useful in QP mode.
-
-contact_detection_tolerance: Signed distance pairs whose distances are
- greater than this value are ignored in the simulator's non-penetration
- constraints. Unit is in meters.
-
-is_quasi_dynamic: bool. If True, dynamics of unactauted objects is
- given by sum(F) = M @ (v_(l+1) - 0). If False, it becomes sum(F) = 0 instead.
-
- The mass matrix for unactuated objects is always added when the
- unconstrained (log-barrier) version of the problem is solved. Not having a mass
- matrix can sometimes make the unconstrained program unbounded.
-
-mode:
-Note that C++ does not support modes using CVX.
-                 | Friction Cone | Force Field | Parser |
-kQpMp            | Pyramid       | No          | MP     |
-kQpCvx           | Pyramid       | No          | CVXPY  |
-kSocpMp          | Icecream      | No          | MP     |
-kLogPyramidMp    | Pyramid       | Yes         | MP     |
-kLogPyramidCvx   | Pyramid       | Yes         | CVXPY  |
-kLogIcecreamMp   | Icecream      | Yes         | MP     |
-kLogIcecreamCvx  | Icecream      | Yes         | CVXPY  |
-
-log_barrier_weight: float, used only in log-barrier modes.
-
-unactuated_mass_scale:
-scales the mass matrix of un-actuated objects by epsilon, so that
-(max_M_u_eigen_value * epsilon) * unactuated_mass_scale = min_h_squared_K.
-    If 0, the mass matrix is not scaled. Refer to the function that computes
-    mass matrix for details.
-*------------------------------C++ only-----------------------------------*
-gradient_lstsq_tolerance: float
-   When solving for A during dynamics gradient computation, i.e.
-   A * A_inv = I_n, --------(*)
-   the relative error is defined as
-   (A_sol * A_inv - I_n) / n,
-   where A_sol is the least squares solution to (*), or the pseudo-inverse
-   of A_inv.
-   A warning is printed when the relative error is greater than this number.
-*/
-// TODO: the inputs to QuasistaticSimulator's constructor should be
-//  collected into a "QuasistaticPlantParameters" structure, which
-//  cannot be changed after the constructor call. "gravity" belongs there.
-struct QuasistaticSimParameters {
-  double h{NAN};
-  Eigen::Vector3d gravity;
-  size_t nd_per_contact;
-  double contact_detection_tolerance;
-  bool is_quasi_dynamic;
-  ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
-  GradientMode gradient_mode{GradientMode::kNone};
-  double log_barrier_weight{NAN};
-  double unactuated_mass_scale{NAN};
-  // -------------------------- CPP only --------------------------
-  double gradient_lstsq_tolerance{2e-2};
-};
 
 /*
  * Denotes whether the indices are those of a configuration vector of a model
@@ -250,36 +151,6 @@ private:
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
                      ModelIndicesMode mode) const;
 
-  [[nodiscard]] double GetFrictionCoefficientForSignedDistancePair(
-      drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const;
-
-  [[nodiscard]] drake::multibody::BodyIndex
-  GetMbpBodyFromGeometry(drake::geometry::GeometryId g_id) const;
-
-  [[nodiscard]] std::unique_ptr<drake::multibody::ModelInstanceIndex>
-      FindModelForBody(drake::multibody::BodyIndex) const;
-
-  template <class T>
-  void CalcJacobianAndPhi(
-      const drake::multibody::MultibodyPlant<T> *plant,
-      const drake::geometry::SceneGraph<T> *sg,
-      const drake::systems::Context<T> *context_plant,
-      const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
-      const int n_d, drake::VectorX<T> *phi_ptr,
-      drake::VectorX<T> *phi_constraints_ptr, drake::MatrixX<T> *Jn_ptr,
-      drake::MatrixX<T> *J_ptr) const;
-
-  template <class T>
-  static void
-  UpdateJacobianRows(const drake::multibody::MultibodyPlant<T> *plant,
-                     const drake::systems::Context<T> *context_plant,
-                     const drake::multibody::BodyIndex &body_idx,
-                     const drake::VectorX<T> &pC_Body,
-                     const drake::VectorX<T> &n_W, const drake::MatrixX<T> &d_W,
-                     size_t i_c, size_t n_d, size_t i_f_start,
-                     drake::EigenPtr<drake::MatrixX<T>> Jn_ptr,
-                     drake::EigenPtr<drake::MatrixX<T>> Jf_ptr);
-
   void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
@@ -413,14 +284,7 @@ private:
       velocity_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       position_indices_;
-  std::unordered_map<drake::multibody::ModelInstanceIndex,
-                     std::unordered_set<drake::multibody::BodyIndex>>
-      bodies_indices_;
 
-  // friction_coefficients[g_idA][g_idB] and friction_coefficients[g_idB][g_idA]
-  //  gives the coefficient of friction between contact geometries g_idA
-  //  and g_idB.
-  std::unordered_map<drake::geometry::GeometryId,
-                     std::unordered_map<drake::geometry::GeometryId, double>>
-      friction_coefficients_;
+  std::unique_ptr<ContactComputer<double>> cc_;
+  std::unique_ptr<ContactComputer<drake::AutoDiffXd>> cc_ad_;
 };

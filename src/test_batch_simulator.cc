@@ -246,7 +246,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   CompareXNext(x_next_batch_parallel, x_next_batch_serial);
 
   // B.
-  CompareB(B_batch_parallel, B_batch_serial, 2e-6);
+  CompareB(B_batch_parallel, B_batch_serial, 1e-5);
 }
 
 /*

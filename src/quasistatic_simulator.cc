@@ -40,6 +40,9 @@ void CreateMbp(
     std::unordered_map<ModelInstanceIndex, Eigen::VectorXd> *robot_stiffness) {
   std::tie(*plant, *scene_graph) =
       drake::multibody::AddMultibodyPlantSceneGraph(builder, 1e-3);
+  // Set name so that MBP and SceneGraph can be accessed by name.
+  (*plant)->set_name(kMultiBodyPlantName);
+  (*scene_graph)->set_name(kSceneGraphName);
   auto parser = drake::multibody::Parser(*plant, *scene_graph);
   // TODO: add package paths from yaml file? Hard-coding paths is clearly not
   //  the solution...
@@ -77,30 +80,6 @@ void CreateMbp(
   (*plant)->Finalize();
 }
 
-template <class T>
-drake::Matrix3X<T> CalcTangentVectors(const Vector3<T> &normal,
-                                      const size_t nd) {
-  Vector3<T> n = normal.normalized();
-  Vector4<T> n4(n.x(), n.y(), n.z(), 0);
-  Matrix3X<T> tangents(3, nd);
-  if (nd == 2) {
-    // Makes sure that dC is in the yz plane.
-    Vector4<T> n_x4(1, 0, 0, 0);
-    tangents.col(0) = n_x4.cross3(n4).head(3);
-    tangents.col(1) = -tangents.col(0);
-  } else {
-    const auto R = drake::math::RotationMatrix<T>::MakeFromOneUnitVector(n, 2);
-
-    for (int i = 0; i < nd; i++) {
-      const double theta = 2 * M_PI / nd * i;
-      tangents.col(i) << cos(theta), sin(theta), 0;
-    }
-    tangents = R * tangents;
-  }
-
-  return tangents;
-}
-
 QuasistaticSimulator::QuasistaticSimulator(
     const std::string &model_directive_path,
     const std::unordered_map<std::string, Eigen::VectorXd> &robot_stiffness_str,
@@ -132,8 +111,6 @@ QuasistaticSimulator::QuasistaticSimulator(
   for (const auto &model : models_all_) {
     velocity_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kV);
     position_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kQ);
-    const auto body_indices = plant_->GetBodyIndices(model);
-    bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
 
   n_v_a_ = 0;
@@ -172,15 +149,6 @@ QuasistaticSimulator::QuasistaticSimulator(
     is_3d_floating_[model] = false;
   }
 
-  // friction coefficients.
-  const auto &inspector = sg_->model_inspector();
-  const auto cc = inspector.GetCollisionCandidates();
-  for (const auto &[g_idA, g_idB] : cc) {
-    const double mu = GetFrictionCoefficientForSignedDistancePair(g_idA, g_idB);
-    friction_coefficients_[g_idA][g_idB] = mu;
-    friction_coefficients_[g_idB][g_idA] = mu;
-  }
-
   // QP derivative.
   dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
@@ -210,6 +178,11 @@ QuasistaticSimulator::QuasistaticSimulator(
       &(diagram_ad_->GetMutableSubsystemContext(*plant_ad_, context_ad_.get()));
   context_sg_ad_ =
       &(diagram_ad_->GetMutableSubsystemContext(*sg_ad_, context_ad_.get()));
+
+  // ContactComputers.
+  cc_ = std::make_unique<ContactComputer<double>>(diagram_.get(), models_all_);
+  cc_ad_ = std::make_unique<ContactComputer<AutoDiffXd>>(diagram_ad_.get(),
+                                                         models_all_);
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -234,28 +207,6 @@ std::vector<int> QuasistaticSimulator::GetIndicesForModel(
     indices[i] = roundl(indices_d[i]);
   }
   return indices;
-}
-
-double QuasistaticSimulator::GetFrictionCoefficientForSignedDistancePair(
-    drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const {
-  const auto &inspector = sg_->model_inspector();
-  const auto props_A = inspector.GetProximityProperties(id_A);
-  const auto props_B = inspector.GetProximityProperties(id_B);
-  const auto &geometryA_friction =
-      props_A->GetProperty<drake::multibody::CoulombFriction<double>>(
-          "material", "coulomb_friction");
-  const auto &geometryB_friction =
-      props_B->GetProperty<drake::multibody::CoulombFriction<double>>(
-          "material", "coulomb_friction");
-  auto cf = drake::multibody::CalcContactFrictionFromSurfaceProperties(
-      geometryA_friction, geometryB_friction);
-  return cf.static_friction();
-}
-
-drake::multibody::BodyIndex QuasistaticSimulator::GetMbpBodyFromGeometry(
-    drake::geometry::GeometryId g_id) const {
-  const auto &inspector = sg_->model_inspector();
-  return plant_->GetBodyFromFrameId(inspector.GetFrameId(g_id))->index();
 }
 
 /*
@@ -312,125 +263,6 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
 Eigen::VectorXd QuasistaticSimulator::GetPositions(
     drake::multibody::ModelInstanceIndex model) const {
   return plant_->GetPositions(*context_plant_, model);
-}
-
-/*
- * Returns nullptr if body_idx is not in any of the values of bodies_indices_;
- * Otherwise returns the model instance to which body_idx belongs.
- */
-std::unique_ptr<ModelInstanceIndex> QuasistaticSimulator::FindModelForBody(
-    drake::multibody::BodyIndex body_idx) const {
-  for (const auto &[model, body_indices] : bodies_indices_) {
-    auto search = body_indices.find(body_idx);
-    if (search != body_indices.end()) {
-      return std::make_unique<ModelInstanceIndex>(model);
-    }
-  }
-  return nullptr;
-}
-
-template <class T>
-void QuasistaticSimulator::UpdateJacobianRows(
-    const drake::multibody::MultibodyPlant<T> *plant,
-    const drake::systems::Context<T> *context_plant,
-    const drake::multibody::BodyIndex &body_idx,
-    const drake::VectorX<T> &pC_Body, const drake::VectorX<T> &n_W,
-    const drake::MatrixX<T> &d_W, size_t i_c, size_t n_d, size_t i_f_start,
-    drake::EigenPtr<drake::MatrixX<T>> Jn_ptr,
-    drake::EigenPtr<drake::MatrixX<T>> Jf_ptr) {
-  drake::Matrix3X<T> Ji(3, plant->num_velocities());
-  const auto &frameB = plant->get_body(body_idx).body_frame();
-  plant->CalcJacobianTranslationalVelocity(
-      *context_plant, drake::multibody::JacobianWrtVariable::kV, frameB,
-      pC_Body, plant->world_frame(), plant->world_frame(), &Ji);
-
-  (*Jn_ptr).row(i_c) += n_W.transpose() * Ji;
-  for (size_t i = 0; i < n_d; i++) {
-    (*Jf_ptr).row(i + i_f_start) += d_W.col(i).transpose() * Ji;
-  }
-}
-
-template <class T>
-void QuasistaticSimulator::CalcJacobianAndPhi(
-    const drake::multibody::MultibodyPlant<T> *plant,
-    const drake::geometry::SceneGraph<T> *sg,
-    const drake::systems::Context<T> *context_plant,
-    const vector<drake::geometry::SignedDistancePair<T>> &sdps, const int n_d,
-    drake::VectorX<T> *phi_ptr, drake::VectorX<T> *phi_constraints_ptr,
-    drake::MatrixX<T> *Jn_ptr, drake::MatrixX<T> *J_ptr) const {
-  VectorX<T> &phi = *phi_ptr;
-  VectorX<T> &phi_constraints = *phi_constraints_ptr;
-  MatrixX<T> &Jn = *Jn_ptr;
-  MatrixX<T> &J = *J_ptr;
-
-  // Contact Jacobians.
-  const auto n_c = sdps.size();
-  const int n_v = plant->num_velocities();
-  const auto n_f = n_d * n_c;
-
-  phi.resize(n_c);
-  Jn.resize(n_c, n_v);
-  Jn.setZero();
-
-  VectorX<T> U(n_c);
-  MatrixX<T> Jf(n_f, n_v);
-  Jf.setZero();
-  const auto &inspector = sg->model_inspector();
-
-  int i_f_start = 0;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    const auto &sdp = sdps[i_c];
-    phi[i_c] = sdp.distance;
-    U[i_c] = friction_coefficients_.at(sdp.id_A).at(sdp.id_B);
-    const auto bodyA_idx = GetMbpBodyFromGeometry(sdp.id_A);
-    const auto bodyB_idx = GetMbpBodyFromGeometry(sdp.id_B);
-    const auto &X_AGa = inspector.GetPoseInFrame(sdp.id_A).template cast<T>();
-    const auto &X_AGb = inspector.GetPoseInFrame(sdp.id_B).template cast<T>();
-    const auto p_ACa_A = X_AGa * sdp.p_ACa;
-    const auto p_BCb_B = X_AGb * sdp.p_BCb;
-
-    const auto model_A_ptr = FindModelForBody(bodyA_idx);
-    const auto model_B_ptr = FindModelForBody(bodyB_idx);
-
-    if (model_A_ptr and model_B_ptr) {
-      const auto n_A_W = sdp.nhat_BA_W;
-      const auto d_A_W = CalcTangentVectors<T>(n_A_W, n_d);
-      const auto n_B_W = -n_A_W;
-      const auto d_B_W = -d_A_W;
-      UpdateJacobianRows<T>(plant, context_plant, bodyA_idx, p_ACa_A, n_A_W,
-                            d_A_W, i_c, n_d, i_f_start, &Jn, &Jf);
-      UpdateJacobianRows<T>(plant, context_plant, bodyB_idx, p_BCb_B, n_B_W,
-                            d_B_W, i_c, n_d, i_f_start, &Jn, &Jf);
-    } else if (model_A_ptr) {
-      const auto n_A_W = sdp.nhat_BA_W;
-      const auto d_A_W = CalcTangentVectors<T>(n_A_W, n_d);
-      UpdateJacobianRows<T>(plant, context_plant, bodyA_idx, p_ACa_A, n_A_W,
-                            d_A_W, i_c, n_d, i_f_start, &Jn, &Jf);
-    } else if (model_B_ptr) {
-      const auto n_B_W = -sdp.nhat_BA_W;
-      const auto d_B_W = CalcTangentVectors<T>(n_B_W, n_d);
-      UpdateJacobianRows<T>(plant, context_plant, bodyB_idx, p_BCb_B, n_B_W,
-                            d_B_W, i_c, n_d, i_f_start, &Jn, &Jf);
-    } else {
-      throw std::runtime_error(
-          "One body in a contact pair is not in body_indices_");
-    }
-    i_f_start += n_d;
-  }
-
-  // Jacobian for constraints.
-  phi_constraints.resize(n_f);
-  J = Jf;
-
-  int j_start = 0;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    for (int j = 0; j < n_d; j++) {
-      int idx = j_start + j;
-      J.row(idx) = Jn.row(i_c) + U[i_c] * Jf.row(idx);
-      phi_constraints[idx] = phi[i_c];
-    }
-    j_start += n_d;
-  }
 }
 
 void QuasistaticSimulator::CalcQAndTauH(
@@ -539,12 +371,13 @@ void QuasistaticSimulator::CalcPyramidMatrices(
   const auto &sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
       params.contact_detection_tolerance);
   collision_pairs_.clear();
+
   for (const auto &sdp : sdps) {
     collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
   }
 
-  CalcJacobianAndPhi(plant_, sg_, context_plant_, sdps, params.nd_per_contact,
-                     phi, phi_constraints, Jn, J);
+  cc_->CalcJacobianAndPhi(context_plant_, sdps, params.nd_per_contact, phi,
+                          phi_constraints, Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
 }
@@ -926,9 +759,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
     MatrixX<AutoDiffXd> Jn_ad, J_ad;
     VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
-    CalcJacobianAndPhi<AutoDiffXd>(plant_ad_, sg_ad_, context_plant_ad_, sdps,
-                                   n_d, &phi_ad, &phi_constraints_ad, &Jn_ad,
-                                   &J_ad);
+    cc_ad_->CalcJacobianAndPhi(context_plant_ad_, sdps, n_d, &phi_ad,
+                               &phi_constraints_ad, &Jn_ad, &J_ad);
 
     const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
 
