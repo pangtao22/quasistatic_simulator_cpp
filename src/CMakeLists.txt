@@ -35,7 +35,7 @@ add_library(get_model_paths get_model_paths.h get_model_paths.cc)
 add_library(qp_derivatives qp_derivatives.h qp_derivatives.cc)
 target_link_libraries(qp_derivatives drake::drake)
 
-add_library(contact_computer contact_computer.h contact_computer.cc
+add_library(contact_computer contact_jacobian_calculator.h contact_jacobian_calculator.cc
         quasistatic_sim_params.h)
 target_link_libraries(contact_computer drake::drake)
 

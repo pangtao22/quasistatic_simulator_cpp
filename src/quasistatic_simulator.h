@@ -7,7 +7,7 @@
 #include "drake/solvers/mosek_solver.h"
 
 #include "qp_derivatives.h"
-#include "contact_computer.h"
+#include "contact_jacobian_calculator.h"
 
 
 /*
@@ -285,6 +285,6 @@ private:
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       position_indices_;
 
-  std::unique_ptr<ContactComputer<double>> cc_;
-  std::unique_ptr<ContactComputer<drake::AutoDiffXd>> cc_ad_;
+  std::unique_ptr<ContactJacobianCalculator<double>> cjc_;
+  std::unique_ptr<ContactJacobianCalculator<drake::AutoDiffXd>> cjc_ad_;
 };

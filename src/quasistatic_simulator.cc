@@ -180,9 +180,10 @@ QuasistaticSimulator::QuasistaticSimulator(
       &(diagram_ad_->GetMutableSubsystemContext(*sg_ad_, context_ad_.get()));
 
   // ContactComputers.
-  cc_ = std::make_unique<ContactComputer<double>>(diagram_.get(), models_all_);
-  cc_ad_ = std::make_unique<ContactComputer<AutoDiffXd>>(diagram_ad_.get(),
-                                                         models_all_);
+  cjc_ = std::make_unique<ContactJacobianCalculator<double>>(diagram_.get(),
+                                                             models_all_);
+  cjc_ad_ = std::make_unique<ContactJacobianCalculator<AutoDiffXd>>(
+      diagram_ad_.get(), models_all_);
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -376,8 +377,8 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
   }
 
-  cc_->CalcJacobianAndPhi(context_plant_, sdps, params.nd_per_contact, phi,
-                          phi_constraints, Jn, J);
+  cjc_->CalcJacobianAndPhi(context_plant_, sdps, params.nd_per_contact, phi,
+                           phi_constraints, Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
 }
@@ -759,8 +760,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
     MatrixX<AutoDiffXd> Jn_ad, J_ad;
     VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
-    cc_ad_->CalcJacobianAndPhi(context_plant_ad_, sdps, n_d, &phi_ad,
-                               &phi_constraints_ad, &Jn_ad, &J_ad);
+    cjc_ad_->CalcJacobianAndPhi(context_plant_ad_, sdps, n_d, &phi_ad,
+                                &phi_constraints_ad, &Jn_ad, &J_ad);
 
     const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
 
