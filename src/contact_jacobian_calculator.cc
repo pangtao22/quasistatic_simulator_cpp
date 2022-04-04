@@ -213,7 +213,7 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
   const int n_v = plant_->num_velocities();
 
   VectorX<T> &phi = *phi_ptr;
-  std::vector<drake::MatrixX<T>> &J_list = *J_list_ptr;
+  std::vector<drake::Matrix3X<T>> &J_list = *J_list_ptr;
   phi.resize(n_c);
   J_list.resize(n_c);
 

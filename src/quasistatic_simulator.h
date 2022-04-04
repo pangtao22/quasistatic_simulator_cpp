@@ -169,7 +169,7 @@ private:
                            const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
   CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
-  
+
   const std::vector<drake::geometry::SignedDistancePair<double>>
   CalcCollisionPairs(double contact_detection_tolerance) const;
 
@@ -192,16 +192,33 @@ private:
                            Eigen::VectorXd *phi,
                            Eigen::VectorXd *phi_constraints) const;
 
-  void StepForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-                     const Eigen::Ref<const Eigen::MatrixXd> &J,
-                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                     const QuasistaticSimParameters &params,
-                     ModelInstanceIndexToVecMap *q_dict_ptr,
-                     Eigen::VectorXd *v_star_ptr,
-                     Eigen::VectorXd *beta_star_ptr);
+  void CalcIcecreamMatrices(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                           const ModelInstanceIndexToVecMap &tau_ext_dict,
+                           const QuasistaticSimParameters &params,
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
+                           std::vector<Eigen::Matrix3Xd> *J_list,
+                           Eigen::VectorXd *phi) const;
 
-  void StepForwardLogPyramid(
+  void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                 const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                 const Eigen::Ref<const Eigen::MatrixXd> &J,
+                 const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                 const QuasistaticSimParameters &params,
+                 ModelInstanceIndexToVecMap *q_dict_ptr,
+                 Eigen::VectorXd *v_star_ptr,
+                 Eigen::VectorXd *beta_star_ptr);
+
+  void ForwardSocp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                 const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                 const std::vector<Eigen::Matrix3Xd> &J_list,
+                 const Eigen::Ref<const Eigen::VectorXd> &phi,
+                 const QuasistaticSimParameters &params,
+                 ModelInstanceIndexToVecMap *q_dict_ptr,
+                 Eigen::VectorXd *v_star_ptr,
+                 Eigen::VectorXd *beta_star_ptr);
+
+  void ForwardLogPyramid(
       const Eigen::Ref<const Eigen::MatrixXd> &Q,
       const Eigen::Ref<const Eigen::VectorXd> &tau_h,
       const Eigen::Ref<const Eigen::MatrixXd> &J,

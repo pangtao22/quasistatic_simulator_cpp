@@ -321,7 +321,6 @@ void QuasistaticSimulator::CalcQAndTauH(
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
-  // TODO: handle this better.
   const auto fm = params.forward_mode;
   const auto q_dict = GetMbpPositions();
   auto q_dict_next(q_dict);
@@ -335,15 +334,28 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
     CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                         &Jn, &J, &phi, &phi_constraints);
-    StepForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
-                  &beta_star);
+    ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
+              &beta_star);
     BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
                beta_star, params);
     return;
   }
 
-  if (fm == ForwardDynamicsMode::kLogIcecreamMp) {
+  if (fm == ForwardDynamicsMode::kSocpMp) {
+    MatrixXd Q;
+    VectorXd tau_h, phi;
+    std::vector<Eigen::Matrix3Xd> J_list;
+    VectorXd v_star, beta_star;
 
+    CalcIcecreamMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
+                         &J_list, &phi);
+    ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
+                &beta_star);
+    if (params.gradient_mode != GradientMode::kNone) {
+      throw std::logic_error(
+          "Gradient not supported yet for Forward Mode kSocpMp");
+    }
+    return;
   }
 
   if (fm == ForwardDynamicsMode::kLogPyramidMp) {
@@ -353,8 +365,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     VectorXd v_star;
     CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                         &Jn, &J, &phi, &phi_constraints);
-    StepForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
-                          &v_star);
+    ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
+                      &v_star);
     BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
     return;
   }
@@ -379,7 +391,20 @@ void QuasistaticSimulator::CalcPyramidMatrices(
                params.unactuated_mass_scale);
 }
 
-void QuasistaticSimulator::StepForwardQp(
+void QuasistaticSimulator::CalcIcecreamMatrices(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict,
+    const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
+    Eigen::VectorXd *tau_h, std::vector<Eigen::Matrix3Xd> *J_list,
+    Eigen::VectorXd *phi) const {
+  const auto sdps = CalcCollisionPairs(params.contact_detection_tolerance);
+  cjc_->CalcJacobianAndPhiSocp(context_plant_, sdps, phi, J_list);
+  CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
+               params.unactuated_mass_scale);
+}
+
+void QuasistaticSimulator::ForwardQp(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
     const Eigen::Ref<const Eigen::MatrixXd> &J,
@@ -396,7 +421,7 @@ void QuasistaticSimulator::StepForwardQp(
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
   auto v = prog.NewContinuousVariables(n_v_, "v");
-  prog.AddQuadraticCost(Q, -tau_h, v);
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
 
   const VectorXd e = phi_constraints / h;
   auto constraints = prog.AddLinearConstraint(
@@ -410,6 +435,94 @@ void QuasistaticSimulator::StepForwardQp(
 
   v_star = mp_result_.GetSolution(v);
   beta_star = -mp_result_.GetDualSolution(constraints);
+
+  // Update q_dict.
+  UpdateQdictFromV(v_star, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::ForwardSocp(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const std::vector<Eigen::Matrix3Xd> &J_list,
+    const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
+    Eigen::VectorXd *beta_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
+  const auto h = params.h;
+  const auto n_c = phi.size();
+
+  drake::solvers::MathematicalProgram prog;
+  auto v = prog.NewContinuousVariables(n_v_, "v");
+
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
+
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    Vector3d e = Vector3d::Zero();
+    const double mu = cjc_->get_friction_coefficient(i_c);
+    e[0] = phi[i_c] / mu / h;
+
+    prog.AddLorentzConeConstraint(J_list.at(i_c), e, v);
+  }
+
+  solver_grb_->Solve(prog, {}, solver_options_, &mp_result_);
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
+  }
+
+  v_star = mp_result_.GetSolution(v);
+
+  // Update q_dict.
+  UpdateQdictFromV(v_star, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::ForwardLogPyramid(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
+  const auto n_f = J.rows();
+  const auto h = params.h;
+
+  drake::solvers::MathematicalProgram prog;
+  auto v = prog.NewContinuousVariables(n_v_, "v");
+  auto s = prog.NewContinuousVariables(n_f, "s");
+
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
+  prog.AddLinearCost(-VectorXd::Constant(n_f, 1 / params.log_barrier_weight), 0,
+                     s);
+
+  for (int i = 0; i < n_f; i++) {
+    MatrixXd A = MatrixXd::Zero(3, n_v_ + 1);
+    A.row(0).head(n_v_) = J.row(i);
+    A(2, n_v_) = 1;
+
+    Vector3d b(phi_constraints[i] / h, 1, 0);
+
+    drake::solvers::VectorXDecisionVariable v_s_i(n_v_ + 1);
+    v_s_i.head(n_v_) = v;
+    v_s_i[n_v_] = s[i];
+    prog.AddExponentialConeConstraint(A.sparseView(), b, v_s_i);
+  }
+
+  solver_msk_->Solve(prog, {}, {}, &mp_result_);
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error(
+        "Quasistatic dynamics Log Pyramid cannot be solved.");
+  }
+
+  v_star = mp_result_.GetSolution(v);
 
   // Update q_dict.
   UpdateQdictFromV(v_star, params, &q_dict);
@@ -486,54 +599,6 @@ void QuasistaticSimulator::BackwardLogPyramid(
   }
 
   throw std::runtime_error("Invalid gradient_mode.");
-}
-
-void QuasistaticSimulator::StepForwardLogPyramid(
-    const Eigen::Ref<const Eigen::MatrixXd> &Q,
-    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-    const Eigen::Ref<const Eigen::MatrixXd> &J,
-    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-    const QuasistaticSimParameters &params,
-    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
-  auto &q_dict = *q_dict_ptr;
-  VectorXd &v_star = *v_star_ptr;
-  const auto n_f = J.rows();
-  const auto h = params.h;
-
-  drake::solvers::MathematicalProgram prog;
-  auto v = prog.NewContinuousVariables(n_v_, "v");
-  auto s = prog.NewContinuousVariables(n_f, "s");
-
-  prog.AddQuadraticCost(Q, -tau_h, v, true);
-  prog.AddLinearCost(-VectorXd::Constant(n_f, 1 / params.log_barrier_weight), 0,
-                     s);
-
-  for (int i = 0; i < n_f; i++) {
-    MatrixXd A = MatrixXd::Zero(3, n_v_ + 1);
-    A.row(0).head(n_v_) = J.row(i);
-    A(2, n_v_) = 1;
-
-    Vector3d b(phi_constraints[i] / h, 1, 0);
-
-    drake::solvers::VectorXDecisionVariable v_s_i(n_v_ + 1);
-    v_s_i.head(n_v_) = v;
-    v_s_i[n_v_] = s[i];
-    prog.AddExponentialConeConstraint(A.sparseView(), b, v_s_i);
-  }
-
-  solver_msk_->Solve(prog, {}, {}, &mp_result_);
-  if (!mp_result_.is_success()) {
-    throw std::runtime_error(
-        "Quasistatic dynamics Log Pyramid cannot be solved.");
-  }
-
-  v_star = mp_result_.GetSolution(v);
-
-  // Update q_dict.
-  UpdateQdictFromV(v_star, params, &q_dict);
-
-  // Update context_plant_ using the new q_dict.
-  UpdateMbpPositions(q_dict);
 }
 
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(
@@ -845,8 +910,8 @@ QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs() const {
 }
 
 const std::vector<drake::geometry::SignedDistancePair<double>>
-QuasistaticSimulator::CalcCollisionPairs(double
-    contact_detection_tolerance) const {
+QuasistaticSimulator::CalcCollisionPairs(
+    double contact_detection_tolerance) const {
   const auto sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
       contact_detection_tolerance);
   collision_pairs_.clear();
