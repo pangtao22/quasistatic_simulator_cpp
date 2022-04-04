@@ -169,6 +169,9 @@ private:
                            const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
   CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+  
+  const std::vector<drake::geometry::SignedDistancePair<double>>
+  CalcCollisionPairs(double contact_detection_tolerance) const;
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
   CalcSignedDistancePairsFromCollisionPairs() const;

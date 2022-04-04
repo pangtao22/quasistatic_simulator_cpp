@@ -43,6 +43,12 @@ public:
       drake::VectorX<T> *phi_constraints_ptr, drake::MatrixX<T> *Jn_ptr,
       drake::MatrixX<T> *J_ptr) const;
 
+  void CalcJacobianAndPhiSocp(
+      const drake::systems::Context<T> *context_plant,
+      const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
+      drake::VectorX<T> *phi_ptr, std::vector<drake::Matrix3X<T>> *J_list_ptr)
+      const;
+
 private:
   double GetFrictionCoefficientForSignedDistancePair(
       drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const;

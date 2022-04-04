@@ -342,6 +342,10 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     return;
   }
 
+  if (fm == ForwardDynamicsMode::kLogIcecreamMp) {
+
+  }
+
   if (fm == ForwardDynamicsMode::kLogPyramidMp) {
     MatrixXd Q, Jn, J;
     VectorXd tau_h, phi, phi_constraints;
@@ -368,15 +372,7 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
     Eigen::VectorXd *tau_h, Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
     Eigen::VectorXd *phi, Eigen::VectorXd *phi_constraints) const {
-  // Collision queries.
-  const auto &sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
-      params.contact_detection_tolerance);
-  collision_pairs_.clear();
-
-  for (const auto &sdp : sdps) {
-    collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
-  }
-
+  const auto sdps = CalcCollisionPairs(params.contact_detection_tolerance);
   cjc_->CalcJacobianAndPhiQp(context_plant_, sdps, params.nd_per_contact, phi,
                              phi_constraints, Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
@@ -846,6 +842,21 @@ QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs() const {
         collision_pair.first, collision_pair.second));
   }
   return sdps_ad;
+}
+
+const std::vector<drake::geometry::SignedDistancePair<double>>
+QuasistaticSimulator::CalcCollisionPairs(double
+    contact_detection_tolerance) const {
+  const auto sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
+      contact_detection_tolerance);
+  collision_pairs_.clear();
+
+  // Save collision pairs, which may later be used in gradient computation by
+  // the AutoDiff MBP.
+  for (const auto &sdp : sdps) {
+    collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
+  }
+  return sdps;
 }
 
 ModelInstanceIndexToMatrixMap

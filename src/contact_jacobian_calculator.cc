@@ -167,6 +167,8 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     const vector<drake::geometry::SignedDistancePair<T>> &sdps, const int n_d,
     drake::VectorX<T> *phi_ptr, drake::VectorX<T> *phi_constraints_ptr,
     drake::MatrixX<T> *Jn_ptr, drake::MatrixX<T> *J_ptr) const {
+  UpdateContactPairInfo(context_plant, sdps);
+
   const auto n_c = sdps.size();
   const int n_v = plant_->num_velocities();
   const auto n_f = n_d * n_c;
@@ -179,8 +181,6 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
   phi_constraints.resize(n_f);
   J.resize(n_f, n_v);
   Jn.resize(n_c, n_v);
-
-  UpdateContactPairInfo(context_plant, sdps);
 
   int j_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -199,5 +199,41 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     }
 
     j_start += n_d;
+  }
+}
+template <class T>
+void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
+    const drake::systems::Context<T> *context_plant,
+    const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
+    drake::VectorX<T> *phi_ptr,
+    std::vector<drake::Matrix3X<T>> *J_list_ptr) const {
+  UpdateContactPairInfo(context_plant, sdps);
+
+  const auto n_c = sdps.size();
+  const int n_v = plant_->num_velocities();
+
+  VectorX<T> &phi = *phi_ptr;
+  std::vector<drake::MatrixX<T>> &J_list = *J_list_ptr;
+  phi.resize(n_c);
+  J_list.resize(n_c);
+
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    const auto &sdp = sdps[i_c];
+    const auto &cpi = contact_pairs_[i_c];
+    const auto mu = get_friction_coefficient(i_c);
+
+    phi[i_c] = sdp.distance;
+
+    Matrix3X<T>& J_i = J_list[i_c];
+    J_i.resize(3, n_v);
+    const drake::Matrix3<T> R =
+        drake::math::RotationMatrix<T>::MakeFromOneUnitVector(sdp.nhat_BA_W, 2)
+            .matrix();
+    const Vector3<T>& t1 = R.col(0);
+    const Vector3<T>& t2 = R.col(1);
+
+    J_i.row(0) = sdp.nhat_BA_W.transpose() * cpi.Jc / mu;
+    J_i.row(1) = t1.transpose() * cpi.Jc;
+    J_i.row(2) = t2.transpose() * cpi.Jc;
   }
 }
