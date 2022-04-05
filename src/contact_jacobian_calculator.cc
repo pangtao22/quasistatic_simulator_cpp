@@ -237,3 +237,6 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
     J_i.row(2) = t2.transpose() * cpi.Jc;
   }
 }
+
+template class ContactJacobianCalculator<double>;
+template class ContactJacobianCalculator<drake::AutoDiffXd>;

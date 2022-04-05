@@ -170,7 +170,7 @@ private:
   static Eigen::Matrix<double, 4, 3>
   CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
-  const std::vector<drake::geometry::SignedDistancePair<double>>
+  std::vector<drake::geometry::SignedDistancePair<double>>
   CalcCollisionPairs(double contact_detection_tolerance) const;
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
@@ -223,6 +223,14 @@ private:
       const Eigen::Ref<const Eigen::VectorXd> &tau_h,
       const Eigen::Ref<const Eigen::MatrixXd> &J,
       const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
+
+  void ForwardLogIcecream(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const std::vector<Eigen::Matrix3Xd> &J_list,
+      const Eigen::Ref<const Eigen::VectorXd> &phi,
       const QuasistaticSimParameters &params,
       ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
 

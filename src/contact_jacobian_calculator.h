@@ -88,5 +88,5 @@ private:
   mutable std::vector<ContactPairInfo<T>> contact_pairs_;
 };
 
-template class ContactJacobianCalculator<double>;
-template class ContactJacobianCalculator<drake::AutoDiffXd>;
+extern template class ContactJacobianCalculator<double>;
+extern template class ContactJacobianCalculator<drake::AutoDiffXd>;
