@@ -325,50 +325,53 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
   const auto q_dict = GetMbpPositions();
   auto q_dict_next(q_dict);
 
-  if (fm == ForwardDynamicsMode::kQpMp) {
+  if (kPyramidModes.find(fm) != kPyramidModes.end()) {
     // Optimization coefficient matrices and vectors.
     MatrixXd Q, Jn, J;
     VectorXd tau_h, phi, phi_constraints;
     // Primal and dual solutions.
     VectorXd v_star, beta_star;
-
     CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                         &Jn, &J, &phi, &phi_constraints);
-    ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
-              &beta_star);
-    BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
-               beta_star, params);
-    return;
+
+    if (fm == ForwardDynamicsMode::kQpMp) {
+      ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
+                &beta_star);
+      BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
+                 beta_star, params);
+      return;
+    }
+
+    if (fm == ForwardDynamicsMode::kLogPyramidMp) {
+      ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
+                        &v_star);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
+      return;
+    }
   }
 
-  if (fm == ForwardDynamicsMode::kSocpMp) {
+  if (kIcecreamModes.find(fm) != kIcecreamModes.end()) {
     MatrixXd Q;
     VectorXd tau_h, phi;
     std::vector<Eigen::Matrix3Xd> J_list;
     VectorXd v_star, beta_star;
-
     CalcIcecreamMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                          &J_list, &phi);
-    ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
-                &beta_star);
-    if (params.gradient_mode != GradientMode::kNone) {
-      throw std::logic_error(
-          "Gradient not supported yet for Forward Mode kSocpMp");
-    }
-    return;
-  }
 
-  if (fm == ForwardDynamicsMode::kLogPyramidMp) {
-    MatrixXd Q, Jn, J;
-    VectorXd tau_h, phi, phi_constraints;
-    // Primal and dual solutions.
-    VectorXd v_star;
-    CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
-                        &Jn, &J, &phi, &phi_constraints);
-    ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
-                      &v_star);
-    BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
-    return;
+    if (fm == ForwardDynamicsMode::kSocpMp) {
+      ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
+                  &beta_star);
+      if (params.gradient_mode != GradientMode::kNone) {
+        throw std::logic_error(
+            "Gradient not supported yet for Forward Mode kSocpMp");
+      }
+      return;
+    }
+
+    if (fm == ForwardDynamicsMode::kLogIcecreamMp) {
+
+      return;
+    }
   }
 
   std::stringstream ss;

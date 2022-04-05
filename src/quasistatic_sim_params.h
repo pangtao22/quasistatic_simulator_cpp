@@ -1,5 +1,6 @@
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <Eigen/Dense>
 
@@ -36,6 +37,12 @@ enum class ForwardDynamicsMode {
   kLogIcecreamMp,
   kLogIcecreamCvx
 };
+
+static const std::unordered_set<ForwardDynamicsMode> kPyramidModes{
+    ForwardDynamicsMode::kQpMp, ForwardDynamicsMode::kLogPyramidMp};
+
+static const std::unordered_set<ForwardDynamicsMode> kIcecreamModes{
+  ForwardDynamicsMode::kSocpMp, ForwardDynamicsMode::kLogIcecreamMp};
 
 /*
 h: simulation time step in seconds.
