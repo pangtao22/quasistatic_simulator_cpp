@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 
 #include "batch_quasistatic_simulator.h"
+#include "log_barrier_solver.h"
 #include "qp_derivatives.h"
 #include "quasistatic_simulator.h"
 
@@ -126,5 +127,12 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_DzDe", &Class::get_DzDe)
         .def("get_DzDb", &Class::get_DzDb)
         .def("get_DzDvecG_active", &Class::get_DzDvecG_active);
+  }
+
+  {
+    using Class = QpLogBarrierSolver;
+    py::class_<Class>(m, "QpLogBarrierSolver")
+        .def(py::init<>())
+        .def("solve", &Class::Solve);
   }
 }

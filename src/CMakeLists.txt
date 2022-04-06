@@ -39,18 +39,17 @@ add_library(contact_computer contact_jacobian_calculator.h contact_jacobian_calc
         quasistatic_sim_params.h)
 target_link_libraries(contact_computer drake::drake)
 
+add_library(log_barrier_solver log_barrier_solver.h log_barrier_solver.cc)
+target_link_libraries(log_barrier_solver drake::drake)
+
 add_library(quasistatic_simulator quasistatic_simulator.h
         quasistatic_simulator.cc)
 target_link_libraries(quasistatic_simulator qp_derivatives drake::drake
-        get_model_paths contact_computer)
+        get_model_paths contact_computer log_barrier_solver)
 
 add_library(batch_quasistatic_simulator batch_quasistatic_simulator.h
         batch_quasistatic_simulator.cc)
 target_link_libraries(batch_quasistatic_simulator quasistatic_simulator)
-
-pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
-target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
-        batch_quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
 target_link_libraries(run_planar_hand_ball quasistatic_simulator gtest)
@@ -68,5 +67,9 @@ target_link_libraries(test_batch_simulator batch_quasistatic_simulator
 
 add_executable(sandbox sandbox.cc)
 target_link_libraries(sandbox drake::drake)
+
+pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
+target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
+        batch_quasistatic_simulator)
 
 add_test(NAME test_batch_simulator COMMAND test_batch_simulator)
