@@ -159,3 +159,26 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
     *Df_ptr += -G.row(i) / d;
   }
 }
+
+void SocpLogBarrierSolver::SolvePhaseOne(
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e,
+    drake::EigenPtr<Eigen::VectorXd> v0_ptr) const {}
+
+double SocpLogBarrierSolver::CalcF(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e, const double kappa,
+    const Eigen::Ref<const Eigen::VectorXd> &v) const {
+  return 0;
+}
+
+void SocpLogBarrierSolver::CalcGradientAndHessian(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e,
+    const Eigen::Ref<const Eigen::VectorXd> &v, double kappa,
+    drake::EigenPtr<Eigen::VectorXd> Df_ptr,
+    drake::EigenPtr<Eigen::MatrixXd> H_ptr) const {}

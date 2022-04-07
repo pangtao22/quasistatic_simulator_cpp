@@ -96,3 +96,30 @@ public:
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
 };
+
+
+class SocpLogBarrierSolver : public LogBarrierSolver {
+ public:
+  SocpLogBarrierSolver() : LogBarrierSolver() {};
+  void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
+                     const Eigen::Ref<const Eigen::VectorXd> &e,
+                     drake::EigenPtr<Eigen::VectorXd> v0_ptr) const override;
+
+  /*
+   * F is the log-barrier objective which we'd like to minimize.
+   */
+  double CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+               const Eigen::Ref<const Eigen::VectorXd> &b,
+               const Eigen::Ref<const Eigen::MatrixXd> &G,
+               const Eigen::Ref<const Eigen::VectorXd> &e, const double kappa,
+               const Eigen::Ref<const Eigen::VectorXd> &v) const override;
+
+  void
+  CalcGradientAndHessian(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                         const Eigen::Ref<const Eigen::VectorXd> &b,
+                         const Eigen::Ref<const Eigen::MatrixXd> &G,
+                         const Eigen::Ref<const Eigen::VectorXd> &e,
+                         const Eigen::Ref<const Eigen::VectorXd> &v,
+                         double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
+                         drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
+};
