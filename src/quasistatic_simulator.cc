@@ -87,7 +87,8 @@ QuasistaticSimulator::QuasistaticSimulator(
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
       solver_grb_(std::make_unique<drake::solvers::GurobiSolver>()),
-      solver_msk_(std::make_unique<drake::solvers::MosekSolver>()) {
+      solver_msk_(std::make_unique<drake::solvers::MosekSolver>()),
+      solver_log_pyramid_(std::make_unique<QpLogBarrierSolver>()) {
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -348,6 +349,13 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
       return;
     }
+
+    if (fm == ForwardDynamicsMode::kLogPyramidMy) {
+      ForwardLogPyramidMySolver(Q, tau_h, J, phi_constraints, params,
+                                &q_dict_next, &v_star);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
+      return;
+    }
   }
 
   if (kIcecreamModes.find(fm) != kIcecreamModes.end()) {
@@ -368,7 +376,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       return;
     }
 
-    if (fm == ForwardDynamicsMode::kLogIcecreamMp) {
+    if (fm == ForwardDynamicsMode::kLogIcecream) {
       ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
       if (params.gradient_mode != GradientMode::kNone) {
         throw std::logic_error(
@@ -532,6 +540,26 @@ void QuasistaticSimulator::ForwardLogPyramid(
 
   v_star = mp_result_.GetSolution(v);
 
+  // Update q_dict.
+  UpdateQdictFromV(v_star, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::ForwardLogPyramidMySolver(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
+  const auto h = params.h;
+
+  v_star = solver_log_pyramid_->Solve(Q, -tau_h, -J, phi_constraints / h,
+                             params.log_barrier_weight);
   // Update q_dict.
   UpdateQdictFromV(v_star, params, &q_dict);
 

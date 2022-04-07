@@ -6,6 +6,7 @@
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/mosek_solver.h"
 
+#include "log_barrier_solver.h"
 #include "qp_derivatives.h"
 #include "contact_jacobian_calculator.h"
 
@@ -226,6 +227,14 @@ private:
       const QuasistaticSimParameters &params,
       ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
 
+  void ForwardLogPyramidMySolver(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const Eigen::Ref<const Eigen::MatrixXd> &J,
+      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
+
   void ForwardLogIcecream(
       const Eigen::Ref<const Eigen::MatrixXd> &Q,
       const Eigen::Ref<const Eigen::VectorXd> &tau_h,
@@ -258,6 +267,7 @@ private:
   // Solvers.
   std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
   std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
+  std::unique_ptr<QpLogBarrierSolver> solver_log_pyramid_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
   drake::solvers::SolverOptions solver_options_;
 

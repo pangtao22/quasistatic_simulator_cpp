@@ -34,15 +34,16 @@ enum class ForwardDynamicsMode {
   kSocpMp,
   kLogPyramidMp,
   kLogPyramidCvx,
-  kLogIcecreamMp,
-  kLogIcecreamCvx
+  kLogPyramidMy,
+  kLogIcecream
 };
 
 static const std::unordered_set<ForwardDynamicsMode> kPyramidModes{
-    ForwardDynamicsMode::kQpMp, ForwardDynamicsMode::kLogPyramidMp};
+    ForwardDynamicsMode::kQpMp, ForwardDynamicsMode::kLogPyramidMp,
+    ForwardDynamicsMode::kLogPyramidMy};
 
 static const std::unordered_set<ForwardDynamicsMode> kIcecreamModes{
-  ForwardDynamicsMode::kSocpMp, ForwardDynamicsMode::kLogIcecreamMp};
+  ForwardDynamicsMode::kSocpMp, ForwardDynamicsMode::kLogIcecream};
 
 /*
 h: simulation time step in seconds.
@@ -109,5 +110,5 @@ struct QuasistaticSimParameters {
   double gradient_lstsq_tolerance{2e-2};
 };
 
-const std::string kMultiBodyPlantName = "MultiBodyPlant";
-const std::string kSceneGraphName = "SceneGraph";
+static char const *const kMultiBodyPlantName = "MultiBodyPlant";
+static char const *const kSceneGraphName = "SceneGraph";

@@ -21,8 +21,8 @@ PYBIND11_MODULE(qsim_cpp, m) {
       .value("kSocpMp", ForwardDynamicsMode::kSocpMp)
       .value("kLogPyramidMp", ForwardDynamicsMode::kLogPyramidMp)
       .value("kLogPyramidCvx", ForwardDynamicsMode::kLogPyramidCvx)
-      .value("kLogIcecreamMp", ForwardDynamicsMode::kLogIcecreamMp)
-      .value("kLogIcecreamCvx", ForwardDynamicsMode::kLogIcecreamCvx);
+      .value("kLogPyramidMy", ForwardDynamicsMode::kLogPyramidMy)
+      .value("kLogIcecream", ForwardDynamicsMode::kLogIcecream);
 
   {
     using Class = QuasistaticSimParameters;

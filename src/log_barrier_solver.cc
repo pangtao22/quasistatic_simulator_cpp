@@ -21,8 +21,8 @@ void QpLogBarrierSolver::SolvePhaseOne(
   // v_s is the concatenation of [v, s], where v is the vector of generalized
   // velocities of the system and s is the scalar slack variables.
   auto v_s = prog.NewContinuousVariables(n_v + 1, "v");
-  const auto& v = v_s.head(n_v);
-  const auto& s = v_s[n_v];
+  const auto &v = v_s.head(n_v);
+  const auto &s = v_s[n_v];
 
   // G * v - e <= s  <==> [G, -1] * v_s <= e.
   MatrixXd G_1(n_f, n_v + 1);
@@ -88,6 +88,39 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
   }
 }
 
+double QpLogBarrierSolver::BackStepLineSearch(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e,
+    const Eigen::Ref<const Eigen::VectorXd> &v,
+    const Eigen::Ref<const Eigen::VectorXd> &dv,
+    const Eigen::Ref<const Eigen::VectorXd> &Df, const double kappa) {
+  double t = 1;
+  int line_search_iters = 0;
+  bool line_search_success = false;
+  double f0 = CalcF(Q, b, G, e, kappa, v);
+
+  while (line_search_iters < line_search_iter_limit_) {
+    double f = CalcF(Q, b, G, e, kappa, v + t * dv);
+    double f1 = f0 + alpha_ * t * Df.transpose() * dv;
+    if (f < f1) {
+      line_search_success = true;
+      break;
+    }
+    t *= beta_;
+    line_search_iters++;
+  }
+
+  if (not line_search_success) {
+    throw std::runtime_error(
+        "Back stepping Line search exceeded iteration limit.");
+  }
+
+  // cout << "t " << t << endl;
+  return t;
+}
+
 Eigen::VectorXd
 QpLogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                           const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -101,32 +134,20 @@ QpLogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   SolvePhaseOne(G, e, &v);
   int n_iters = 0;
   bool converged = false;
-  while (n_iters < iteration_limit_) {
+  while (n_iters < newton_steps_limit_) {
     CalcGradientAndHessian(Q, b, G, e, v, kappa, &Df, &H);
     VectorXd dv = -H.llt().solve(Df);
     double lambda_squared = -Df.transpose() * dv;
-    if (lambda_squared / 2 < 1e-6) {
+    if (lambda_squared / 2 < tol_) {
       converged = true;
       break;
     }
-//    cout << "------------------------------------------" << endl;
-//    cout << "Iter " << n_iters << endl;
-//    cout << "H\n" << H << endl;
-//    cout << "dv: " << dv.transpose() << endl;
-//    cout << "v: " << v.transpose() << endl;
-
-    // back-tracking line search.
-    double t = 1;
-    double f0 = CalcF(Q, b, G, e, kappa, v);
-    while (true) {
-      double f = CalcF(Q, b, G, e, kappa, v + t * dv);
-      double f1 = f0 + alpha_ * t * Df.transpose() * dv;
-      if (f < f1) {
-        break;
-      }
-      t *= beta_;
-    }
-//    cout << "t " << t << endl;
+    //    cout << "------------------------------------------" << endl;
+    //    cout << "Iter " << n_iters << endl;
+    //    cout << "H\n" << H << endl;
+    //    cout << "dv: " << dv.transpose() << endl;
+    //    cout << "v: " << v.transpose() << endl;
+    double t = BackStepLineSearch(Q, b, G, e, v, dv, Df, kappa);
     v += t * dv;
     n_iters++;
   }
