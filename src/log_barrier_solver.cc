@@ -7,8 +7,79 @@ using Eigen::VectorXd;
 using std::cout;
 using std::endl;
 
-QpLogBarrierSolver::QpLogBarrierSolver() {
+LogBarrierSolver::LogBarrierSolver() {
   solver_ = std::make_unique<drake::solvers::GurobiSolver>();
+}
+
+double LogBarrierSolver::BackStepLineSearch(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e,
+    const Eigen::Ref<const Eigen::VectorXd> &v,
+    const Eigen::Ref<const Eigen::VectorXd> &dv,
+    const Eigen::Ref<const Eigen::VectorXd> &Df, const double kappa) const {
+  double t = 1;
+  int line_search_iters = 0;
+  bool line_search_success = false;
+  double f0 = CalcF(Q, b, G, e, kappa, v);
+
+  while (line_search_iters < line_search_iter_limit_) {
+    double f = CalcF(Q, b, G, e, kappa, v + t * dv);
+    double f1 = f0 + alpha_ * t * Df.transpose() * dv;
+    if (f < f1) {
+      line_search_success = true;
+      break;
+    }
+    t *= beta_;
+    line_search_iters++;
+  }
+
+  if (not line_search_success) {
+    throw std::runtime_error(
+        "Back stepping Line search exceeded iteration limit.");
+  }
+
+  // cout << "t " << t << endl;
+  return t;
+}
+
+Eigen::VectorXd
+LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                        const Eigen::Ref<const Eigen::VectorXd> &b,
+                        const Eigen::Ref<const Eigen::MatrixXd> &G,
+                        const Eigen::Ref<const Eigen::VectorXd> &e,
+                        double kappa) const {
+  const auto n_v = Q.rows();
+  MatrixXd H(n_v, n_v);
+  VectorXd Df(n_v);
+  VectorXd v(n_v);
+  SolvePhaseOne(G, e, &v);
+  int n_iters = 0;
+  bool converged = false;
+  while (n_iters < newton_steps_limit_) {
+    CalcGradientAndHessian(Q, b, G, e, v, kappa, &Df, &H);
+    VectorXd dv = -H.llt().solve(Df);
+    double lambda_squared = -Df.transpose() * dv;
+    if (lambda_squared / 2 < tol_) {
+      converged = true;
+      break;
+    }
+    //    cout << "------------------------------------------" << endl;
+    //    cout << "Iter " << n_iters << endl;
+    //    cout << "H\n" << H << endl;
+    //    cout << "dv: " << dv.transpose() << endl;
+    //    cout << "v: " << v.transpose() << endl;
+    double t = BackStepLineSearch(Q, b, G, e, v, dv, Df, kappa);
+    v += t * dv;
+    n_iters++;
+  }
+
+  if (not converged) {
+    throw std::runtime_error("QpLogBarrier Newton's method did not converge.");
+  }
+
+  return v;
 }
 
 void QpLogBarrierSolver::SolvePhaseOne(
@@ -51,12 +122,13 @@ void QpLogBarrierSolver::SolvePhaseOne(
   *v0_ptr = mp_result_.GetSolution(v);
 }
 
-double QpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                                 const Eigen::Ref<const Eigen::VectorXd> &b,
-                                 const Eigen::Ref<const Eigen::MatrixXd> &G,
-                                 const Eigen::Ref<const Eigen::VectorXd> &e,
-                                 const double kappa,
-                                 const Eigen::Ref<const Eigen::VectorXd> &v) {
+double
+QpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                          const Eigen::Ref<const Eigen::VectorXd> &b,
+                          const Eigen::Ref<const Eigen::MatrixXd> &G,
+                          const Eigen::Ref<const Eigen::VectorXd> &e,
+                          const double kappa,
+                          const Eigen::Ref<const Eigen::VectorXd> &v) const {
   double f = kappa * 0.5 * v.transpose() * Q * v;
   f += kappa * b.transpose() * v;
   for (int i = 0; i < G.rows(); i++) {
@@ -78,7 +150,7 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
     const Eigen::Ref<const Eigen::VectorXd> &e,
     const Eigen::Ref<const Eigen::VectorXd> &v, const double kappa,
     drake::EigenPtr<Eigen::VectorXd> Df_ptr,
-    drake::EigenPtr<Eigen::MatrixXd> H_ptr) {
+    drake::EigenPtr<Eigen::MatrixXd> H_ptr) const {
   *H_ptr = Q * kappa;
   *Df_ptr = (Q * v + b) * kappa;
   for (int i = 0; i < G.rows(); i++) {
@@ -86,75 +158,4 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
     *H_ptr += G.row(i).transpose() * G.row(i) / d / d;
     *Df_ptr += -G.row(i) / d;
   }
-}
-
-double QpLogBarrierSolver::BackStepLineSearch(
-    const Eigen::Ref<const Eigen::MatrixXd> &Q,
-    const Eigen::Ref<const Eigen::VectorXd> &b,
-    const Eigen::Ref<const Eigen::MatrixXd> &G,
-    const Eigen::Ref<const Eigen::VectorXd> &e,
-    const Eigen::Ref<const Eigen::VectorXd> &v,
-    const Eigen::Ref<const Eigen::VectorXd> &dv,
-    const Eigen::Ref<const Eigen::VectorXd> &Df, const double kappa) {
-  double t = 1;
-  int line_search_iters = 0;
-  bool line_search_success = false;
-  double f0 = CalcF(Q, b, G, e, kappa, v);
-
-  while (line_search_iters < line_search_iter_limit_) {
-    double f = CalcF(Q, b, G, e, kappa, v + t * dv);
-    double f1 = f0 + alpha_ * t * Df.transpose() * dv;
-    if (f < f1) {
-      line_search_success = true;
-      break;
-    }
-    t *= beta_;
-    line_search_iters++;
-  }
-
-  if (not line_search_success) {
-    throw std::runtime_error(
-        "Back stepping Line search exceeded iteration limit.");
-  }
-
-  // cout << "t " << t << endl;
-  return t;
-}
-
-Eigen::VectorXd
-QpLogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                          const Eigen::Ref<const Eigen::VectorXd> &b,
-                          const Eigen::Ref<const Eigen::MatrixXd> &G,
-                          const Eigen::Ref<const Eigen::VectorXd> &e,
-                          double kappa) const {
-  const auto n_v = Q.rows();
-  MatrixXd H(n_v, n_v);
-  VectorXd Df(n_v);
-  VectorXd v(n_v);
-  SolvePhaseOne(G, e, &v);
-  int n_iters = 0;
-  bool converged = false;
-  while (n_iters < newton_steps_limit_) {
-    CalcGradientAndHessian(Q, b, G, e, v, kappa, &Df, &H);
-    VectorXd dv = -H.llt().solve(Df);
-    double lambda_squared = -Df.transpose() * dv;
-    if (lambda_squared / 2 < tol_) {
-      converged = true;
-      break;
-    }
-    //    cout << "------------------------------------------" << endl;
-    //    cout << "Iter " << n_iters << endl;
-    //    cout << "H\n" << H << endl;
-    //    cout << "dv: " << dv.transpose() << endl;
-    //    cout << "v: " << v.transpose() << endl;
-    double t = BackStepLineSearch(Q, b, G, e, v, dv, Df, kappa);
-    v += t * dv;
-    n_iters++;
-  }
-
-  if (not converged) {
-    throw std::runtime_error("QpLogBarrier Newton's method did not converge.");
-  }
-
-  return v;
 }
