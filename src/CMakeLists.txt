@@ -68,6 +68,9 @@ target_link_libraries(test_batch_simulator batch_quasistatic_simulator
 add_executable(sandbox sandbox.cc)
 target_link_libraries(sandbox drake::drake)
 
+add_executable(run_log_barrier_solver run_log_barrier_solver.cc)
+target_link_libraries(run_log_barrier_solver log_barrier_solver)
+
 pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
 target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
         batch_quasistatic_simulator)
