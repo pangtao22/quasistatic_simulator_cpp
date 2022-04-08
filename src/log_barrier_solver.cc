@@ -4,6 +4,7 @@
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
+using Eigen::Vector3d;
 using std::cout;
 using std::endl;
 
@@ -171,7 +172,19 @@ double SocpLogBarrierSolver::CalcF(
     const Eigen::Ref<const Eigen::MatrixXd> &G,
     const Eigen::Ref<const Eigen::VectorXd> &e, const double kappa,
     const Eigen::Ref<const Eigen::VectorXd> &v) const {
-  return 0;
+  const int n_c = G.rows() / 3;
+  const int n_v = G.cols();
+  DRAKE_ASSERT(G.rows() % 3 == 0);
+  DRAKE_ASSERT(e.size() == n_c);
+
+  double output = 0.5 * v.transpose() * Q * v + (b.array() * v.array()).sum();
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    const Eigen::Matrix3Xd& J = -G.block(i_c, 0, 3, n_v);
+    Vector3d w = J * v;
+    w[0] += e[i_c];
+    output += -log(w[0] * w[0] - w[1] * w[1] - w[2] * w[2]) / kappa;
+  }
+  return output;
 }
 
 void SocpLogBarrierSolver::CalcGradientAndHessian(
