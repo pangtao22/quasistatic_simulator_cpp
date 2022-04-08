@@ -63,8 +63,8 @@ protected:
  *  s.t. G * v - e <= 0,
  * which has a log-barrier formulation
  * min. kappa * (0.5 * v.T * Q * v + b * v) - sum_log(e - G * v),
- * where sum_log refers to taking the log of every row and then summing them;
- * kappa is the log barrier weight.
+ * where sum_log refers to taking the log of every entry in a vector and then
+ * summing them; kappa is the log barrier weight.
  *
  * The phase-1 program, which finds a feasible solution to the QP, is given by
  * min. s
@@ -97,7 +97,26 @@ public:
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
 };
 
-
+/*
+ * Consider the SOCP
+ * min. 0.5 * v.T * Q * v + b.T * v
+ *  s.t. -G_i * v + [e_i, 0, 0] \in Q^3,
+ *  where Q^3 is the 3-dimensional second-order cone; G_i is a (3, n_v)
+ *  matrix; e_i is a scalar. We concatenate G_i and e_i vertically:
+ *  G := [[G_1], ...[G_n]], with shape (3 * n, n_v), and
+ *  e := [e_1, ... e_n], with shape (n,).
+ *
+ * For convenience, we define
+ * w_i := -G_i * v + [e_i, 0, 0],
+ * so that the cone constraints in the SOCP can be expressed as
+ * w_i[0]**2 >= w_i[1]**2 + w_i[2]**2.
+ *
+ * The SOCP has a log-barrier formulation
+ * min. kappa * (0.5 * v.T * Q * v + b * v)
+ *      - sum_log(w_i[0]**2 - w_i[1]**2 - w_i[2]**),
+ * where sum_log refers to taking the log of every entry in a vector and then
+ * summing them; kappa is the log barrier weight.
+ */
 class SocpLogBarrierSolver : public LogBarrierSolver {
  public:
   SocpLogBarrierSolver() : LogBarrierSolver() {};

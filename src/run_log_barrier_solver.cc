@@ -23,7 +23,7 @@ int main() {
   J.row(0) << -1., 1., 1;
   J.row(1) << 1., 1., -1;
 
-  const double kappa{100}, h{0.1};
+  const double kappa{10}, h{0.1};
 
   VectorXd phi_constraints(2);
   phi_constraints.setZero();
@@ -43,7 +43,7 @@ int main() {
   VectorXd v(3);
   v << 0.5, 2, 1;
 
-  MatrixXd J2(3, 3);
+  MatrixXd J2(3, n_v);
   J2.row(0) = Jn / mu;
   J2.row(1) = Jt.row(0);
   J2.row(2) = Jt.row(1);
@@ -56,10 +56,11 @@ int main() {
     output = x.transpose() * Q.template cast<Scalar>() * x;
     output[0] *= 0.5;
     output -= tau_h.template cast<Scalar>().transpose() * x;
+    output[0] *= kappa;
 
     drake::Vector3<Scalar> w = J2.template cast<Scalar>() * x;
     w[0] += phi[0] / h / mu;
-    output[0] -= Eigen::log(w[0] * w[0] - w[1] * w[1] - w[2] * w[2]) / kappa;
+    output[0] -= Eigen::log(w[0] * w[0] - w[1] * w[1] - w[2] * w[2]);
 
     return output;
   };
@@ -74,10 +75,17 @@ int main() {
     cout << cost.derivatives()[i].derivatives().transpose() << endl;
   }
 
-  cout << "My...." << endl;
+  cout << "-----My----" << endl;
   auto solver_log_socp = SocpLogBarrierSolver();
   cout << "cost "
        << solver_log_socp.CalcF(Q, -tau_h, -J2, phi / mu / h, kappa, v)
        << endl;
+
+  Eigen::VectorXd Df(n_v);
+  Eigen::MatrixXd H_my(n_v, n_v);
+  solver_log_socp.CalcGradientAndHessian(Q, -tau_h, -J2, phi / mu / h, v,
+                                         kappa, &Df, &H_my);
+  cout << "Df\n" << Df << endl;
+  cout << "H_my\n" << H_my << endl;
   return 0;
 }

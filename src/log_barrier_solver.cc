@@ -166,6 +166,15 @@ void SocpLogBarrierSolver::SolvePhaseOne(
     const Eigen::Ref<const Eigen::VectorXd> &e,
     drake::EigenPtr<Eigen::VectorXd> v0_ptr) const {}
 
+
+Eigen::Vector3d CalcWi(
+    const Eigen::Ref<const Eigen::Matrix3Xd> &G_i,
+    const double e_i, const Eigen::Ref<const Eigen::VectorXd> &v) {
+  Vector3d w = -G_i * v;
+  w[0] += e_i;
+  return w;
+}
+
 double SocpLogBarrierSolver::CalcF(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -178,11 +187,14 @@ double SocpLogBarrierSolver::CalcF(
   DRAKE_ASSERT(e.size() == n_c);
 
   double output = 0.5 * v.transpose() * Q * v + (b.array() * v.array()).sum();
+  output *= kappa;
   for (int i_c = 0; i_c < n_c; i_c++) {
-    const Eigen::Matrix3Xd& J = -G.block(i_c, 0, 3, n_v);
-    Vector3d w = J * v;
-    w[0] += e[i_c];
-    output += -log(w[0] * w[0] - w[1] * w[1] - w[2] * w[2]) / kappa;
+    Vector3d w = CalcWi(G.block(i_c, 0, 3, n_v), e[i_c], v);
+    const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+    if (d > 0) {
+      return std::numeric_limits<double>::infinity();
+    }
+    output += -log(-d);
   }
   return output;
 }
@@ -194,4 +206,24 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
     const Eigen::Ref<const Eigen::VectorXd> &e,
     const Eigen::Ref<const Eigen::VectorXd> &v, double kappa,
     drake::EigenPtr<Eigen::VectorXd> Df_ptr,
-    drake::EigenPtr<Eigen::MatrixXd> H_ptr) const {}
+    drake::EigenPtr<Eigen::MatrixXd> H_ptr) const {
+  *H_ptr = Q * kappa;
+  *Df_ptr = (Q * v + b) * kappa;
+  const int n_c = G.rows() / 3;
+  const int n_v = G.cols();
+
+  Eigen::RowVectorXd Dd(n_v);
+  Eigen::Matrix3d A;
+  A.setIdentity();
+  A *= 2;
+  A(0, 0) = -2;
+  for (int i = 0; i < n_c; i++) {
+    const Eigen::Matrix3Xd& G_i = G.block(i, 0, 3, n_v);
+    Vector3d w = CalcWi(G_i, e[i], v);
+    const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+    Dd = 2 * Eigen::RowVector3d(-w[0], w[1], w[2]) * G_i;
+    *Df_ptr += Dd.transpose() / d;
+    *H_ptr += Dd.transpose() * Dd / d / d;
+    *H_ptr += G_i.transpose() * A * G_i / -d;
+  }
+}
