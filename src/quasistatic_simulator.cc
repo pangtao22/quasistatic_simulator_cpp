@@ -88,7 +88,8 @@ QuasistaticSimulator::QuasistaticSimulator(
     : sim_params_(std::move(sim_params)),
       solver_grb_(std::make_unique<drake::solvers::GurobiSolver>()),
       solver_msk_(std::make_unique<drake::solvers::MosekSolver>()),
-      solver_log_pyramid_(std::make_unique<QpLogBarrierSolver>()) {
+      solver_log_pyramid_(std::make_unique<QpLogBarrierSolver>()),
+      solver_log_icecream_(std::make_unique<SocpLogBarrierSolver>()) {
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -577,53 +578,19 @@ void QuasistaticSimulator::ForwardLogIcecream(
   auto &q_dict = *q_dict_ptr;
   VectorXd &v_star = *v_star_ptr;
   const auto h = params.h;
-  const auto n_c = phi.size();
 
-  drake::solvers::MathematicalProgram prog;
-  auto v = prog.NewContinuousVariables(n_v_, "v");
-  // Slack variables for exponential cones.
-  auto s_log = prog.NewContinuousVariables(n_c, "s_log");
-  // Slack variables for 2nd order cones.
-  auto s_2nd = prog.NewContinuousVariables(n_c, "s_2nd");
+  const auto n_c = J_list.size();
+  const auto n_v = Q.rows();
 
-  prog.AddQuadraticCost(Q, -tau_h, v, true);
-  prog.AddLinearCost(VectorXd::Ones(n_c), 0, s_log);
-
-  drake::solvers::VectorXDecisionVariable v_s2nd_slog(n_v_ + 2);
-  v_s2nd_slog.head(n_v_) = v;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    // J.row(0) == Jn / mu;
-    // J.row(1) == Jt1
-    // J.row(2) == Jt2
-    const Eigen::Ref<const MatrixXd> &J = J_list.at(i_c);
-    const double mu = cjc_->get_friction_coefficient(i_c);
-    v_s2nd_slog[n_v_] = s_2nd[i_c];
-    v_s2nd_slog[n_v_ + 1] = s_log[i_c];
-
-    Eigen::Matrix3Xd A_2nd(3, n_v_ + 1);
-    A_2nd.setZero();
-    A_2nd(0, n_v_) = 1;
-    A_2nd.bottomLeftCorner(2, n_v_) = J.bottomRows(2);
-    prog.AddLorentzConeConstraint(A_2nd, Vector3d::Zero(),
-                                  v_s2nd_slog.head(n_v_ + 1));
-
-    Eigen::Matrix3Xd A_log(3, n_v_ + 2);
-    A_log.setZero();
-    A_log.row(0).head(n_v_) = J.row(0);
-    A_log(0, n_v_) = -1;
-    A_log(2, n_v_ + 1) = -params.log_barrier_weight;
-
-    Vector3d b(phi[i_c] / mu / h, 1, 0);
-    prog.AddExponentialConeConstraint(A_log.sparseView(), b, v_s2nd_slog);
+  MatrixXd J(n_c * 3, n_v);
+  VectorXd phi_h_mu(n_c);
+  for(int i = 0; i < n_c; i++) {
+    J.block(i * 3, 0, 3, n_v) = J_list.at(i);
+    phi_h_mu[i] = phi[i] / h / cjc_->get_friction_coefficient(i);
   }
 
-  solver_msk_->Solve(prog, {}, {}, &mp_result_);
-  if (!mp_result_.is_success()) {
-    throw std::runtime_error(
-        "Quasistatic dynamics Log Icecream cannot be solved.");
-  }
-
-  v_star = mp_result_.GetSolution(v);
+  v_star = solver_log_icecream_->Solve(Q, -tau_h, -J, phi_h_mu,
+                                       params.log_barrier_weight);
 
   // Update q_dict.
   UpdateQdictFromV(v_star, params, &q_dict);

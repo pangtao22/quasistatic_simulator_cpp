@@ -27,6 +27,11 @@ public:
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const = 0;
 
+  void GetPhaseOneSolution(
+      const drake::solvers::VectorXDecisionVariable &v,
+      const drake::solvers::DecisionVariable &s,
+      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const;
+
   Eigen::VectorXd Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                         const Eigen::Ref<const Eigen::VectorXd> &b,
                         const Eigen::Ref<const Eigen::MatrixXd> &G,
@@ -42,7 +47,7 @@ public:
                             const Eigen::Ref<const Eigen::VectorXd> &Df,
                             const double kappa) const;
 
-protected:
+ protected:
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
@@ -95,6 +100,7 @@ public:
                          const Eigen::Ref<const Eigen::VectorXd> &v,
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
+
 };
 
 /*

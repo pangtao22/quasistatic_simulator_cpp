@@ -268,6 +268,7 @@ private:
   std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
   std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
   std::unique_ptr<QpLogBarrierSolver> solver_log_pyramid_;
+  std::unique_ptr<SocpLogBarrierSolver> solver_log_icecream_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
   drake::solvers::SolverOptions solver_options_;
 

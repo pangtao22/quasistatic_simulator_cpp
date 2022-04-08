@@ -2,9 +2,10 @@
 
 #include "log_barrier_solver.h"
 
+using Eigen::Matrix3Xd;
 using Eigen::MatrixXd;
-using Eigen::VectorXd;
 using Eigen::Vector3d;
+using Eigen::VectorXd;
 using std::cout;
 using std::endl;
 
@@ -83,6 +84,25 @@ LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   return v;
 }
 
+void LogBarrierSolver::GetPhaseOneSolution(
+    const drake::solvers::VectorXDecisionVariable &v,
+    const drake::solvers::DecisionVariable &s,
+    drake::EigenPtr<Eigen::VectorXd> v0_ptr) const {
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error("Phase 1 program cannot be solved.");
+  }
+
+  const auto s_value = mp_result_.GetSolution(s);
+  if (s_value > -1e-6) {
+    v0_ptr = nullptr;
+    std::stringstream ss;
+    ss << "Phase 1 cannot find a feasible solution. s = " << s_value << endl;
+    throw std::runtime_error(ss.str());
+  }
+
+  *v0_ptr = mp_result_.GetSolution(v);
+}
+
 void QpLogBarrierSolver::SolvePhaseOne(
     const Eigen::Ref<const Eigen::MatrixXd> &G,
     const Eigen::Ref<const Eigen::VectorXd> &e,
@@ -108,19 +128,7 @@ void QpLogBarrierSolver::SolvePhaseOne(
   prog.AddBoundingBoxConstraint(-1, 1, v);
 
   solver_->Solve(prog, {}, {}, &mp_result_);
-  if (!mp_result_.is_success()) {
-    throw std::runtime_error("Phase 1 program cannot be solved.");
-  }
-
-  const auto s_value = mp_result_.GetSolution(s);
-  if (s_value > -1e-6) {
-    v0_ptr = nullptr;
-    std::stringstream ss;
-    ss << "Phase 1 cannot find a feasible solution. s = " << s_value << endl;
-    throw std::runtime_error(ss.str());
-  }
-
-  *v0_ptr = mp_result_.GetSolution(v);
+  GetPhaseOneSolution(v, s, v0_ptr);
 }
 
 double
@@ -164,32 +172,55 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
 void SocpLogBarrierSolver::SolvePhaseOne(
     const Eigen::Ref<const Eigen::MatrixXd> &G,
     const Eigen::Ref<const Eigen::VectorXd> &e,
-    drake::EigenPtr<Eigen::VectorXd> v0_ptr) const {}
+    drake::EigenPtr<Eigen::VectorXd> v0_ptr) const {
+  const auto n_c = G.rows() / 3;
+  const auto n_v = G.cols();
+  DRAKE_THROW_UNLESS(G.rows() % 3 == 0);
+  DRAKE_THROW_UNLESS(e.size() == n_c);
 
+  auto prog = drake::solvers::MathematicalProgram();
+  auto v_s = prog.NewContinuousVariables(n_v + 1, "v");
+  const auto &v = v_s.head(n_v);
+  const auto &s = v_s[n_v];
 
-Eigen::Vector3d CalcWi(
-    const Eigen::Ref<const Eigen::Matrix3Xd> &G_i,
-    const double e_i, const Eigen::Ref<const Eigen::VectorXd> &v) {
+  prog.AddLinearCost(s);
+
+  Matrix3Xd A(3, n_v + 1);
+  A.rightCols(1) = Vector3d(1, 0, 0);
+  for (int i = 0; i < n_c; i++) {
+    A.leftCols(n_v) = -G.block(i * 3, 0, 3, n_v);
+    Vector3d b(e[i], 0, 0);
+    prog.AddLorentzConeConstraint(A, b, v_s);
+  }
+
+  prog.AddBoundingBoxConstraint(-1, 1, v);
+
+  solver_->Solve(prog, {}, {}, &mp_result_);
+  GetPhaseOneSolution(v, s, v0_ptr);
+}
+
+Eigen::Vector3d CalcWi(const Eigen::Ref<const Eigen::Matrix3Xd> &G_i,
+                       const double e_i,
+                       const Eigen::Ref<const Eigen::VectorXd> &v) {
   Vector3d w = -G_i * v;
   w[0] += e_i;
   return w;
 }
 
-double SocpLogBarrierSolver::CalcF(
-    const Eigen::Ref<const Eigen::MatrixXd> &Q,
-    const Eigen::Ref<const Eigen::VectorXd> &b,
-    const Eigen::Ref<const Eigen::MatrixXd> &G,
-    const Eigen::Ref<const Eigen::VectorXd> &e, const double kappa,
-    const Eigen::Ref<const Eigen::VectorXd> &v) const {
+double
+SocpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                            const Eigen::Ref<const Eigen::VectorXd> &b,
+                            const Eigen::Ref<const Eigen::MatrixXd> &G,
+                            const Eigen::Ref<const Eigen::VectorXd> &e,
+                            const double kappa,
+                            const Eigen::Ref<const Eigen::VectorXd> &v) const {
   const int n_c = G.rows() / 3;
   const int n_v = G.cols();
-  DRAKE_ASSERT(G.rows() % 3 == 0);
-  DRAKE_ASSERT(e.size() == n_c);
 
   double output = 0.5 * v.transpose() * Q * v + (b.array() * v.array()).sum();
   output *= kappa;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    Vector3d w = CalcWi(G.block(i_c, 0, 3, n_v), e[i_c], v);
+  for (int i = 0; i < n_c; i++) {
+    Vector3d w = CalcWi(G.block(i * 3, 0, 3, n_v), e[i], v);
     const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
     if (d > 0) {
       return std::numeric_limits<double>::infinity();
@@ -218,12 +249,14 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
   A *= 2;
   A(0, 0) = -2;
   for (int i = 0; i < n_c; i++) {
-    const Eigen::Matrix3Xd& G_i = G.block(i, 0, 3, n_v);
+    const Eigen::Matrix3Xd &G_i = G.block(i * 3, 0, 3, n_v);
     Vector3d w = CalcWi(G_i, e[i], v);
     const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+    cout << -d << " ";
     Dd = 2 * Eigen::RowVector3d(-w[0], w[1], w[2]) * G_i;
     *Df_ptr += Dd.transpose() / d;
     *H_ptr += Dd.transpose() * Dd / d / d;
     *H_ptr += G_i.transpose() * A * G_i / -d;
   }
+  cout << endl;
 }

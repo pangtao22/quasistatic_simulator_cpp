@@ -26,12 +26,13 @@ int main() {
   const double kappa{10}, h{0.1};
 
   VectorXd phi_constraints(2);
-  phi_constraints.setZero();
+  phi_constraints << 0.1, 0.1;
 
   auto solver = QpLogBarrierSolver();
-  solver.Solve(Q, -tau_h, -J, phi_constraints / h, kappa);
 
-  // ----------------------
+  cout << "log QP solution" << endl;
+  cout << solver.Solve(Q, -tau_h, -J, phi_constraints / h, kappa) << endl;
+  // -------------------------------------------------------------------
   const double mu = 1;
   MatrixXd Jn(1, 3);
   Jn << 0, 1, 0;
@@ -48,7 +49,7 @@ int main() {
   J2.row(1) = Jt.row(0);
   J2.row(2) = Jt.row(1);
 
-  drake::Vector1d phi(0.1);
+  drake::Vector1d phi(phi_constraints[0]);
 
   auto f = [&](const auto &x) {
     using Scalar = typename std::remove_reference_t<decltype(x)>::Scalar;
@@ -87,5 +88,8 @@ int main() {
                                          kappa, &Df, &H_my);
   cout << "Df\n" << Df << endl;
   cout << "H_my\n" << H_my << endl;
+  cout << "log SOCP solution" << endl;
+  cout << solver_log_socp.Solve(Q, -tau_h, -J2, phi / mu / h,
+                                kappa) << endl;
   return 0;
 }
