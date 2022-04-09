@@ -27,10 +27,9 @@ public:
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const = 0;
 
-  void GetPhaseOneSolution(
-      const drake::solvers::VectorXDecisionVariable &v,
-      const drake::solvers::DecisionVariable &s,
-      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const;
+  void GetPhaseOneSolution(const drake::solvers::VectorXDecisionVariable &v,
+                           const drake::solvers::DecisionVariable &s,
+                           drake::EigenPtr<Eigen::VectorXd> v0_ptr) const;
 
   Eigen::VectorXd Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                         const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -47,7 +46,7 @@ public:
                             const Eigen::Ref<const Eigen::VectorXd> &Df,
                             const double kappa) const;
 
- protected:
+protected:
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
@@ -78,7 +77,7 @@ public:
  */
 class QpLogBarrierSolver : public LogBarrierSolver {
 public:
-  QpLogBarrierSolver() : LogBarrierSolver() {};
+  QpLogBarrierSolver() : LogBarrierSolver(){};
   void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
                      const Eigen::Ref<const Eigen::VectorXd> &e,
                      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const override;
@@ -100,7 +99,6 @@ public:
                          const Eigen::Ref<const Eigen::VectorXd> &v,
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
-
 };
 
 /*
@@ -124,8 +122,8 @@ public:
  * summing them; kappa is the log barrier weight.
  */
 class SocpLogBarrierSolver : public LogBarrierSolver {
- public:
-  SocpLogBarrierSolver() : LogBarrierSolver() {};
+public:
+  SocpLogBarrierSolver() : LogBarrierSolver(){};
   void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
                      const Eigen::Ref<const Eigen::VectorXd> &e,
                      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const override;

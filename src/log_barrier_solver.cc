@@ -222,7 +222,7 @@ SocpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   for (int i = 0; i < n_c; i++) {
     Vector3d w = CalcWi(G.block(i * 3, 0, 3, n_v), e[i], v);
     const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-    if (d > 0) {
+    if (d > 0 or w[0] < 0) {
       return std::numeric_limits<double>::infinity();
     }
     output += -log(-d);
@@ -244,7 +244,7 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
   const int n_v = G.cols();
 
   Eigen::RowVectorXd Dd(n_v);
-  Eigen::Matrix3d A;
+  static Eigen::Matrix3d A;
   A.setIdentity();
   A *= 2;
   A(0, 0) = -2;
