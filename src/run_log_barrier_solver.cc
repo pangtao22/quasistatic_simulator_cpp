@@ -11,22 +11,21 @@ using std::cout;
 using std::endl;
 
 int main() {
-
   const int n_v = 3;
   MatrixXd Q(n_v, n_v);
   Q.setIdentity();
 
   VectorXd tau_h(n_v);
-  tau_h << 0.31390925, 0.1954178, 0;
+  tau_h << -0.41669826, -0.46413128, 0;
 
   MatrixXd J(2, n_v);
   J.row(0) << -1., 1., 1;
   J.row(1) << 1., 1., -1;
 
-  const double kappa{10}, h{0.1};
+  const double kappa{100}, h{0.1};
 
   VectorXd phi_constraints(2);
-  phi_constraints << 0.1, 0.1;
+  phi_constraints << 0, 0;
 
   auto solver = QpLogBarrierSolver();
 
@@ -40,9 +39,6 @@ int main() {
   MatrixXd Jt(2, 3);
   Jt.row(0) << -1, 0, 1;
   Jt.row(1) << 0, 0, 0;
-
-  VectorXd v(3);
-  v << 0.5, 2, 1;
 
   MatrixXd J2(3, n_v);
   J2.row(0) = Jn / mu;
@@ -65,6 +61,9 @@ int main() {
 
     return output;
   };
+
+  VectorXd v(3);
+  v << 0.5, 2, 1;
 
   auto H = drake::math::hessian(f, v);
   auto &cost = H(0, 0);
