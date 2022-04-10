@@ -61,18 +61,15 @@ target_link_libraries(run_3link_arm_3d quasistatic_simulator
 add_executable(run_iiwa_box_stacking run_iiwa_box_stacking.cc)
 target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
 
-add_executable(test_batch_simulator test_batch_simulator.cc)
-target_link_libraries(test_batch_simulator batch_quasistatic_simulator
-        gtest)
-
-add_executable(sandbox sandbox.cc)
-target_link_libraries(sandbox drake::drake)
-
-add_executable(run_log_barrier_solver run_log_barrier_solver.cc)
-target_link_libraries(run_log_barrier_solver log_barrier_solver)
-
 pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
 target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
         batch_quasistatic_simulator)
 
+add_executable(test_batch_simulator test_batch_simulator.cc)
+target_link_libraries(test_batch_simulator batch_quasistatic_simulator gtest)
+
+add_executable(test_log_barrier_solver test_log_barrier_solver.cc)
+target_link_libraries(test_log_barrier_solver log_barrier_solver gtest)
+
 add_test(NAME test_batch_simulator COMMAND test_batch_simulator)
+add_test(NAME test_log_barrier_solver COMMAND test_log_barrier_solver)
