@@ -145,4 +145,53 @@ public:
                          const Eigen::Ref<const Eigen::VectorXd> &v,
                          double kappa, drake::EigenPtr<Eigen::VectorXd> Df_ptr,
                          drake::EigenPtr<Eigen::MatrixXd> H_ptr) const override;
+
+  template <class T>
+  static T DoCalcF(const Eigen::Ref<const drake::MatrixX<T>> &Q,
+                   const Eigen::Ref<const drake::VectorX<T>> &b,
+                   const Eigen::Ref<const drake::MatrixX<T>> &G,
+                   const Eigen::Ref<const drake::VectorX<T>> &e,
+                   const double kappa,
+                   const Eigen::Ref<const drake::VectorX<T>> &v);
+
+  template <class T>
+  static drake::Vector3<T>
+  CalcWi(const Eigen::Ref<const drake::Matrix3X<T>> &G_i, const T e_i,
+         const Eigen::Ref<const Eigen::VectorX<T>> &v);
 };
+
+template <class T>
+drake::Vector3<T>
+SocpLogBarrierSolver::CalcWi(const Eigen::Ref<const drake::Matrix3X<T>> &G_i,
+                             const T e_i,
+                             const Eigen::Ref<const Eigen::VectorX<T>> &v) {
+  drake::Vector3<T> w = -G_i * v;
+  w[0] += e_i;
+  return w;
+}
+
+template <class T>
+T SocpLogBarrierSolver::DoCalcF(const Eigen::Ref<const drake::MatrixX<T>> &Q,
+                                const Eigen::Ref<const drake::VectorX<T>> &b,
+                                const Eigen::Ref<const drake::MatrixX<T>> &G,
+                                const Eigen::Ref<const drake::VectorX<T>> &e,
+                                const double kappa,
+                                const Eigen::Ref<const drake::VectorX<T>> &v) {
+  const int n_c = G.rows() / 3;
+  const int n_v = G.cols();
+
+  T output = 0.5 * v.dot(Q * v) + b.dot(v);
+  output *= kappa;
+
+  for (int i = 0; i < n_c; i++) {
+    drake::Vector3<T> w = CalcWi<T>(G.block(i * 3, 0, 3, n_v), e[i], v);
+    const T d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+    if (d > 0 or w[0] < 0) {
+      return {std::numeric_limits<double>::infinity()};
+    }
+    using Eigen::log;  // AutoDiffXd
+    using std::log;  // double
+    output += -log(-d);
+  }
+  return output;
+}

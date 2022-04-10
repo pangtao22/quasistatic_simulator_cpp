@@ -50,15 +50,14 @@ int main() {
   auto f = [&](const auto &x) {
     using Scalar = typename std::remove_reference_t<decltype(x)>::Scalar;
     drake::Vector1<Scalar> output;
-    output = x.transpose() * Q.template cast<Scalar>() * x;
-    output[0] *= 0.5;
-    output -= tau_h.template cast<Scalar>().transpose() * x;
-    output[0] *= kappa;
-
-    drake::Vector3<Scalar> w = J2.template cast<Scalar>() * x;
-    w[0] += phi[0] / h / mu;
-    output[0] -= Eigen::log(w[0] * w[0] - w[1] * w[1] - w[2] * w[2]);
-
+    drake::VectorX<Scalar> phi_h_mu(phi.size());
+    for (int i = 0; i < phi.size(); i++) {
+      phi_h_mu[i] = phi[i] / h / mu;
+    }
+    output[0] = SocpLogBarrierSolver::DoCalcF<Scalar>(
+        Q.template cast<Scalar>(), -tau_h.template cast<Scalar>(),
+        -J2.template cast<Scalar>(), phi_h_mu,
+        kappa, x);
     return output;
   };
 
@@ -78,17 +77,15 @@ int main() {
   cout << "-----My----" << endl;
   auto solver_log_socp = SocpLogBarrierSolver();
   cout << "cost "
-       << solver_log_socp.CalcF(Q, -tau_h, -J2, phi / mu / h, kappa, v)
-       << endl;
+       << solver_log_socp.CalcF(Q, -tau_h, -J2, phi / mu / h, kappa, v) << endl;
 
   Eigen::VectorXd Df(n_v);
   Eigen::MatrixXd H_my(n_v, n_v);
-  solver_log_socp.CalcGradientAndHessian(Q, -tau_h, -J2, phi / mu / h, v,
-                                         kappa, &Df, &H_my);
+  solver_log_socp.CalcGradientAndHessian(Q, -tau_h, -J2, phi / mu / h, v, kappa,
+                                         &Df, &H_my);
   cout << "Df\n" << Df << endl;
   cout << "H_my\n" << H_my << endl;
   cout << "log SOCP solution" << endl;
-  cout << solver_log_socp.Solve(Q, -tau_h, -J2, phi / mu / h,
-                                kappa) << endl;
+  cout << solver_log_socp.Solve(Q, -tau_h, -J2, phi / mu / h, kappa) << endl;
   return 0;
 }

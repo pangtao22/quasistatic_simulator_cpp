@@ -199,14 +199,6 @@ void SocpLogBarrierSolver::SolvePhaseOne(
   GetPhaseOneSolution(v, s, v0_ptr);
 }
 
-Eigen::Vector3d CalcWi(const Eigen::Ref<const Eigen::Matrix3Xd> &G_i,
-                       const double e_i,
-                       const Eigen::Ref<const Eigen::VectorXd> &v) {
-  Vector3d w = -G_i * v;
-  w[0] += e_i;
-  return w;
-}
-
 double
 SocpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                             const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -214,20 +206,7 @@ SocpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                             const Eigen::Ref<const Eigen::VectorXd> &e,
                             const double kappa,
                             const Eigen::Ref<const Eigen::VectorXd> &v) const {
-  const int n_c = G.rows() / 3;
-  const int n_v = G.cols();
-
-  double output = 0.5 * v.transpose() * Q * v + (b.array() * v.array()).sum();
-  output *= kappa;
-  for (int i = 0; i < n_c; i++) {
-    Vector3d w = CalcWi(G.block(i * 3, 0, 3, n_v), e[i], v);
-    const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-    if (d > 0 or w[0] < 0) {
-      return std::numeric_limits<double>::infinity();
-    }
-    output += -log(-d);
-  }
-  return output;
+  return DoCalcF<double>(Q, b, G, e, kappa, v);
 }
 
 void SocpLogBarrierSolver::CalcGradientAndHessian(
@@ -250,13 +229,12 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
   A(0, 0) = -2;
   for (int i = 0; i < n_c; i++) {
     const Eigen::Matrix3Xd &G_i = G.block(i * 3, 0, 3, n_v);
-    Vector3d w = CalcWi(G_i, e[i], v);
+    Vector3d w = CalcWi<double>(G_i, e[i], v);
     const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-    cout << -d << " ";
+
     Dd = 2 * Eigen::RowVector3d(-w[0], w[1], w[2]) * G_i;
     *Df_ptr += Dd.transpose() / d;
     *H_ptr += Dd.transpose() * Dd / d / d;
     *H_ptr += G_i.transpose() * A * G_i / -d;
   }
-  cout << endl;
 }
