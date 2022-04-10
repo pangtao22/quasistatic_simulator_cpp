@@ -157,14 +157,14 @@ public:
   template <class T>
   static drake::Vector3<T>
   CalcWi(const Eigen::Ref<const drake::Matrix3X<T>> &G_i, const T e_i,
-         const Eigen::Ref<const Eigen::VectorX<T>> &v);
+         const Eigen::Ref<const drake::VectorX<T>> &v);
 };
 
 template <class T>
 drake::Vector3<T>
 SocpLogBarrierSolver::CalcWi(const Eigen::Ref<const drake::Matrix3X<T>> &G_i,
                              const T e_i,
-                             const Eigen::Ref<const Eigen::VectorX<T>> &v) {
+                             const Eigen::Ref<const drake::VectorX<T>> &v) {
   drake::Vector3<T> w = -G_i * v;
   w[0] += e_i;
   return w;
@@ -180,7 +180,7 @@ T SocpLogBarrierSolver::DoCalcF(const Eigen::Ref<const drake::MatrixX<T>> &Q,
   const int n_c = G.rows() / 3;
   const int n_v = G.cols();
 
-  T output = 0.5 * v.dot(Q * v) + b.dot(v);
+  T output = 0.5 * v.dot(Q * v + b);
   output *= kappa;
 
   for (int i = 0; i < n_c; i++) {
