@@ -222,19 +222,20 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
   const int n_c = G.rows() / 3;
   const int n_v = G.cols();
 
-  Eigen::RowVectorXd Dd(n_v);
+  // Hessian of generalized log w.r.t. w.
+  static Eigen::Matrix3d D2w;
   static Eigen::Matrix3d A;
   A.setIdentity();
-  A *= 2;
-  A(0, 0) = -2;
+  A(0, 0) = -1;
+  static Eigen::Vector3d w_bar;
+
   for (int i = 0; i < n_c; i++) {
     const Eigen::Matrix3Xd &G_i = G.block(i * 3, 0, 3, n_v);
     Vector3d w = CalcWi<double>(G_i, e[i], v);
     const double d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-
-    Dd = 2 * Eigen::RowVector3d(-w[0], w[1], w[2]) * G_i;
-    *Df_ptr += Dd.transpose() / d;
-    *H_ptr += Dd.transpose() * Dd / d / d;
-    *H_ptr += G_i.transpose() * A * G_i / -d;
+    w_bar << w[0], -w[1], -w[2];
+    D2w = 4 / d / d * w_bar * w_bar.transpose() - 2 / d * A;
+    *Df_ptr -= 2 / d * G_i.transpose() * w_bar;
+    *H_ptr += G_i.transpose() * D2w * G_i;
   }
 }

@@ -180,7 +180,7 @@ T SocpLogBarrierSolver::DoCalcF(const Eigen::Ref<const drake::MatrixX<T>> &Q,
   const int n_c = G.rows() / 3;
   const int n_v = G.cols();
 
-  T output = 0.5 * v.dot(Q * v + b);
+  T output = 0.5 * v.dot(Q * v) + v.dot(b);
   output *= kappa;
 
   for (int i = 0; i < n_c; i++) {
