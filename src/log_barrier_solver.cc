@@ -49,24 +49,20 @@ double LogBarrierSolver::BackStepLineSearch(
   return t;
 }
 
-void
-LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                        const Eigen::Ref<const Eigen::VectorXd> &b,
-                        const Eigen::Ref<const Eigen::MatrixXd> &G,
-                        const Eigen::Ref<const Eigen::VectorXd> &e,
-                        double kappa,
-                        Eigen::VectorXd *v_star_ptr)
-                        const {
+void LogBarrierSolver::SolveOneNewtonStep(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e, double kappa,
+    drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const {
   const auto n_v = Q.rows();
   MatrixXd H(n_v, n_v);
   VectorXd Df(n_v);
-  VectorXd v(n_v);
-  SolvePhaseOne(G, e, &v);
   int n_iters = 0;
   bool converged = false;
 
   while (n_iters < newton_steps_limit_) {
-    CalcGradientAndHessian(Q, b, G, e, v, kappa, &Df, &H);
+    CalcGradientAndHessian(Q, b, G, e, *v_star_ptr, kappa, &Df, &H);
     H_llt_.compute(H);
     VectorXd dv = -H_llt_.solve(Df);
     double lambda_squared = -Df.transpose() * dv;
@@ -79,13 +75,56 @@ LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
     //    cout << "H\n" << H << endl;
     //    cout << "dv: " << dv.transpose() << endl;
     //    cout << "v: " << v.transpose() << endl;
-    double t = BackStepLineSearch(Q, b, G, e, v, dv, Df, kappa);
-    v += t * dv;
+    double t;
+    try {
+      t = BackStepLineSearch(Q, b, G, e, *v_star_ptr, dv, Df, kappa);
+    } catch (std::runtime_error& err ) {
+      std::stringstream ss;
+      ss << err.what();
+      ss << ". Current kappa " << kappa;
+      throw std::runtime_error(ss.str());
+    }
+    *v_star_ptr += t * dv;
     n_iters++;
   }
 
   if (not converged) {
-    throw std::runtime_error("QpLogBarrier Newton's method did not converge.");
+    std::stringstream ss;
+    ss << "QpLogBarrier Newton's method did not converge for barrier weight ";
+    ss << kappa;
+    throw std::runtime_error(ss.str());
+  }
+}
+
+void LogBarrierSolver::SolveMultipleNewtonSteps(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e, double kappa_max,
+    drake::EigenPtr<VectorXd> v_star_ptr) const {
+  double kappa = 1;
+  while (true) {
+    SolveOneNewtonStep(Q, b, G, e, kappa, v_star_ptr);
+    kappa = std::min(kappa_max, kappa * 2);
+    if (kappa == kappa_max) {
+      break;
+    }
+  }
+}
+
+void LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                             const Eigen::Ref<const Eigen::VectorXd> &b,
+                             const Eigen::Ref<const Eigen::MatrixXd> &G,
+                             const Eigen::Ref<const Eigen::VectorXd> &e,
+                             double kappa_max,
+                             Eigen::VectorXd *v_star_ptr) const {
+  VectorXd v(Q.rows());
+  SolvePhaseOne(G, e, &v);
+
+  try {
+    SolveOneNewtonStep(Q, b, G, e, kappa_max, &v);
+  } catch (std::runtime_error &exception) {
+    SolveMultipleNewtonSteps(Q, b, G, e, kappa_max, &v);
   }
 
   *v_star_ptr = v;

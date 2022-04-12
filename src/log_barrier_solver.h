@@ -38,8 +38,22 @@ public:
   void Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
              const Eigen::Ref<const Eigen::VectorXd> &b,
              const Eigen::Ref<const Eigen::MatrixXd> &G,
-             const Eigen::Ref<const Eigen::VectorXd> &e, double kappa,
+             const Eigen::Ref<const Eigen::VectorXd> &e, double kappa_max,
              Eigen::VectorXd *v_star_ptr) const;
+
+  void SolveOneNewtonStep(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+             const Eigen::Ref<const Eigen::VectorXd> &b,
+             const Eigen::Ref<const Eigen::MatrixXd> &G,
+             const Eigen::Ref<const Eigen::VectorXd> &e,
+             double kappa,
+             drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
+
+  void SolveMultipleNewtonSteps(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                          const Eigen::Ref<const Eigen::VectorXd> &b,
+                          const Eigen::Ref<const Eigen::MatrixXd> &G,
+                          const Eigen::Ref<const Eigen::VectorXd> &e,
+                          double kappa_max,
+                          drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
 
   double BackStepLineSearch(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                             const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -59,7 +73,7 @@ protected:
   // Hyperparameters for line search.
   static constexpr double alpha_{0.4};
   static constexpr double beta_{0.5};
-  static constexpr int line_search_iter_limit_{20};
+  static constexpr int line_search_iter_limit_{30};
 
   // Hyperparameters for Newton's method.
   static constexpr int newton_steps_limit_{50};

@@ -101,6 +101,23 @@ TEST_F(TestLogBarrierSolvers, TestSolve) {
   EXPECT_LT((v_star_pyramid - v_star_icecream).norm(), 1e-5);
 }
 
+TEST_F(TestLogBarrierSolvers, TestMultipleStepSolve) {
+  auto solver_pyramid = QpLogBarrierSolver();
+  auto solver_icecream = SocpLogBarrierSolver();
+
+  VectorXd v_star_pyramid(n_v_), v_star_icecream(n_v_);
+  solver_pyramid.SolvePhaseOne(-J_pyramid_, phi_pyramid_ / h_, &v_star_pyramid);
+  solver_icecream.SolvePhaseOne(-J_icecream_, phi_icecream_ / mu_ / h_,
+                                &v_star_icecream);
+
+  solver_pyramid.SolveMultipleNewtonSteps(
+      Q_, -tau_h_, -J_pyramid_, phi_pyramid_ / h_, kappa_, &v_star_pyramid);
+  solver_icecream.SolveMultipleNewtonSteps(Q_, -tau_h_, -J_icecream_,
+                                           phi_icecream_ / mu_ / h_, kappa_,
+                                           &v_star_icecream);
+  EXPECT_LT((v_star_pyramid - v_star_icecream).norm(), 1e-5);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
