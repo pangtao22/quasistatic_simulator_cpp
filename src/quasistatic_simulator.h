@@ -171,6 +171,13 @@ private:
   static Eigen::Matrix<double, 4, 3>
   CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
+  void
+  CalcUnconstrainedBFromHessian(
+      const Eigen::LLT<Eigen::MatrixXd> &H_llt,
+      const QuasistaticSimParameters &params,
+      const ModelInstanceIndexToVecMap &q_dict,
+      Eigen::MatrixXd* B_ptr) const;
+
   std::vector<drake::geometry::SignedDistancePair<double>>
   CalcCollisionPairs(double contact_detection_tolerance) const;
 
@@ -260,7 +267,8 @@ private:
                      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
                      const ModelInstanceIndexToVecMap &q_dict,
                      const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                     const QuasistaticSimParameters &params);
+                     const QuasistaticSimParameters &params,
+                     Eigen::LLT<Eigen::MatrixXd>const * const H_llt);
 
   QuasistaticSimParameters sim_params_;
 

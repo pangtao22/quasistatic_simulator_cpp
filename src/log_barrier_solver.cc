@@ -46,12 +46,14 @@ double LogBarrierSolver::BackStepLineSearch(
   return t;
 }
 
-Eigen::VectorXd
+void
 LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                         const Eigen::Ref<const Eigen::VectorXd> &b,
                         const Eigen::Ref<const Eigen::MatrixXd> &G,
                         const Eigen::Ref<const Eigen::VectorXd> &e,
-                        double kappa) const {
+                        double kappa,
+                        Eigen::VectorXd *v_star_ptr)
+                        const {
   const auto n_v = Q.rows();
   MatrixXd H(n_v, n_v);
   VectorXd Df(n_v);
@@ -59,9 +61,11 @@ LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   SolvePhaseOne(G, e, &v);
   int n_iters = 0;
   bool converged = false;
+
   while (n_iters < newton_steps_limit_) {
     CalcGradientAndHessian(Q, b, G, e, v, kappa, &Df, &H);
-    VectorXd dv = -H.llt().solve(Df);
+    H_llt_.compute(H);
+    VectorXd dv = -H_llt_.solve(Df);
     double lambda_squared = -Df.transpose() * dv;
     if (lambda_squared / 2 < tol_) {
       converged = true;
@@ -81,7 +85,7 @@ LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
     throw std::runtime_error("QpLogBarrier Newton's method did not converge.");
   }
 
-  return v;
+  *v_star_ptr = v;
 }
 
 void LogBarrierSolver::GetPhaseOneSolution(

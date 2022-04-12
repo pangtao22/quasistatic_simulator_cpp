@@ -347,14 +347,16 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     if (fm == ForwardDynamicsMode::kLogPyramidMp) {
       ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
                         &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
+                         nullptr);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogPyramidMy) {
       ForwardLogPyramidMySolver(Q, tau_h, J, phi_constraints, params,
                                 &q_dict_next, &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
+                         &solver_log_pyramid_->get_H_llt());
       return;
     }
   }
@@ -556,13 +558,12 @@ void QuasistaticSimulator::ForwardLogPyramidMySolver(
     const QuasistaticSimParameters &params,
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
   auto &q_dict = *q_dict_ptr;
-  VectorXd &v_star = *v_star_ptr;
-  const auto h = params.h;
 
-  v_star = solver_log_pyramid_->Solve(Q, -tau_h, -J, phi_constraints / h,
-                             params.log_barrier_weight);
+  solver_log_pyramid_->Solve(Q, -tau_h, -J, phi_constraints / params.h,
+                             params.log_barrier_weight, v_star_ptr);
+
   // Update q_dict.
-  UpdateQdictFromV(v_star, params, &q_dict);
+  UpdateQdictFromV(*v_star_ptr, params, &q_dict);
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
@@ -576,7 +577,7 @@ void QuasistaticSimulator::ForwardLogIcecream(
     const QuasistaticSimParameters &params,
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
   auto &q_dict = *q_dict_ptr;
-  VectorXd &v_star = *v_star_ptr;
+
   const auto h = params.h;
 
   const auto n_c = J_list.size();
@@ -584,16 +585,16 @@ void QuasistaticSimulator::ForwardLogIcecream(
 
   MatrixXd J(n_c * 3, n_v);
   VectorXd phi_h_mu(n_c);
-  for(int i = 0; i < n_c; i++) {
+  for (int i = 0; i < n_c; i++) {
     J.block(i * 3, 0, 3, n_v) = J_list.at(i);
     phi_h_mu[i] = phi[i] / h / cjc_->get_friction_coefficient(i);
   }
 
-  v_star = solver_log_icecream_->Solve(Q, -tau_h, -J, phi_h_mu,
-                                       params.log_barrier_weight);
+  solver_log_icecream_->Solve(Q, -tau_h, -J, phi_h_mu,
+                              params.log_barrier_weight, v_star_ptr);
 
   // Update q_dict.
-  UpdateQdictFromV(v_star, params, &q_dict);
+  UpdateQdictFromV(*v_star_ptr, params, &q_dict);
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
@@ -645,28 +646,42 @@ void QuasistaticSimulator::BackwardLogPyramid(
     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
     const ModelInstanceIndexToVecMap &q_dict,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const QuasistaticSimParameters &params) {
+    const QuasistaticSimParameters &params,
+    Eigen::LLT<MatrixXd> const *const H_llt) {
   if (params.gradient_mode == GradientMode::kNone) {
     return;
   }
 
   if (params.gradient_mode == GradientMode::kBOnly) {
-    Eigen::MatrixXd H(Q);
-    for (int i = 0; i < J.rows(); i++) {
-      double d = phi_constraints[i] / params.h + J.row(i) * v_star;
-      H += J.row(i).transpose() * J.row(i) / d / d / params.log_barrier_weight;
-    }
-    MatrixXd Dv_nextDb(n_v_, n_v_);
-    Dv_nextDb.setIdentity();
-    Dv_nextDb *= -1;
-    H.llt().solveInPlace(Dv_nextDb); // H is positive definite.
+    if (H_llt) {
+      CalcUnconstrainedBFromHessian(*H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    } else {
+      Eigen::MatrixXd H(n_v_, n_v_);
+      // not used, but needed by CalcGradientAndHessian.
+      Eigen::VectorXd Df(n_v_);
+      solver_log_pyramid_->CalcGradientAndHessian(
+          Q, VectorXd::Zero(n_v_), -J, phi_constraints / params.h, v_star,
+          params.log_barrier_weight, &Df, &H);
 
-    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict);
+      CalcUnconstrainedBFromHessian(H.llt(), params, q_dict, &Dq_nextDqa_cmd_);
+    }
+
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     return;
   }
 
-  throw std::runtime_error("Invalid gradient_mode.");
+  throw std::logic_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::CalcUnconstrainedBFromHessian(
+    const Eigen::LLT<Eigen::MatrixXd> &H_llt,
+    const QuasistaticSimParameters &params,
+    const ModelInstanceIndexToVecMap &q_dict, Eigen::MatrixXd *B_ptr) const {
+  MatrixXd Dv_nextDb(n_v_, n_v_);
+  Dv_nextDb.setIdentity();
+  Dv_nextDb *= -params.log_barrier_weight;
+  H_llt.solveInPlace(Dv_nextDb);
+  *B_ptr = CalcDfDu(Dv_nextDb, params.h, q_dict);
 }
 
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(

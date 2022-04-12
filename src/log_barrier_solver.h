@@ -31,11 +31,15 @@ public:
                            const drake::solvers::DecisionVariable &s,
                            drake::EigenPtr<Eigen::VectorXd> v0_ptr) const;
 
-  Eigen::VectorXd Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                        const Eigen::Ref<const Eigen::VectorXd> &b,
-                        const Eigen::Ref<const Eigen::MatrixXd> &G,
-                        const Eigen::Ref<const Eigen::VectorXd> &e,
-                        double kappa) const;
+  /*
+   * Optionally returns the Cholesky factorization of the Hessian at
+   * optimality.
+   */
+  void Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+             const Eigen::Ref<const Eigen::VectorXd> &b,
+             const Eigen::Ref<const Eigen::MatrixXd> &G,
+             const Eigen::Ref<const Eigen::VectorXd> &e, double kappa,
+             Eigen::VectorXd *v_star_ptr) const;
 
   double BackStepLineSearch(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                             const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -45,6 +49,8 @@ public:
                             const Eigen::Ref<const Eigen::VectorXd> &dv,
                             const Eigen::Ref<const Eigen::VectorXd> &Df,
                             const double kappa) const;
+
+  const Eigen::LLT<Eigen::MatrixXd> &get_H_llt() const { return H_llt_; };
 
 protected:
   std::unique_ptr<drake::solvers::GurobiSolver> solver_;
@@ -59,6 +65,9 @@ protected:
   static constexpr int newton_steps_limit_{50};
   // Considered converge if Newton's decrement / 2 < tol_.
   static constexpr double tol_{1e-6};
+
+private:
+  mutable Eigen::LLT<Eigen::MatrixXd> H_llt_;
 };
 
 /*
@@ -189,8 +198,8 @@ T SocpLogBarrierSolver::DoCalcF(const Eigen::Ref<const drake::MatrixX<T>> &Q,
     if (d > 0 or w[0] < 0) {
       return {std::numeric_limits<double>::infinity()};
     }
-    using Eigen::log;  // AutoDiffXd
-    using std::log;  // double
+    using Eigen::log; // AutoDiffXd
+    using std::log;   // double
     output += -log(-d);
   }
   return output;
