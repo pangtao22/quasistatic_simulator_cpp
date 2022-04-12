@@ -270,6 +270,12 @@ private:
                      const QuasistaticSimParameters &params,
                      Eigen::LLT<Eigen::MatrixXd>const * const H_llt);
 
+  void
+  BackwardLogIcecream(
+                     const ModelInstanceIndexToVecMap &q_dict,
+                     const QuasistaticSimParameters &params,
+                     const Eigen::LLT<Eigen::MatrixXd>& H_llt);
+
   QuasistaticSimParameters sim_params_;
 
   // Solvers.

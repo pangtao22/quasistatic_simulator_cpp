@@ -381,10 +381,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
     if (fm == ForwardDynamicsMode::kLogIcecream) {
       ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
-      if (params.gradient_mode != GradientMode::kNone) {
-        throw std::logic_error(
-            "Gradient not supported yet for Forward Mode kLogIcecreamMp");
-      }
+      BackwardLogIcecream(q_dict_next, params,
+                          solver_log_icecream_->get_H_llt());
       return;
     }
   }
@@ -666,6 +664,23 @@ void QuasistaticSimulator::BackwardLogPyramid(
       CalcUnconstrainedBFromHessian(H.llt(), params, q_dict, &Dq_nextDqa_cmd_);
     }
 
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::logic_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::BackwardLogIcecream(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const QuasistaticSimParameters &params,
+    const Eigen::LLT<Eigen::MatrixXd> &H_llt) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     return;
   }

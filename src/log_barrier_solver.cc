@@ -38,8 +38,11 @@ double LogBarrierSolver::BackStepLineSearch(
   }
 
   if (not line_search_success) {
-    throw std::runtime_error(
-        "Back stepping Line search exceeded iteration limit.");
+    std::stringstream msg;
+    msg << "Back stepping Line search exceeded iteration limit. ";
+    msg << "Gradient norm: ";
+    msg << Df.norm();
+    throw std::runtime_error(msg.str());
   }
 
   // cout << "t " << t << endl;
