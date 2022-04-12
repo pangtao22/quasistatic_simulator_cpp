@@ -78,7 +78,7 @@ void LogBarrierSolver::SolveOneNewtonStep(
     double t;
     try {
       t = BackStepLineSearch(Q, b, G, e, *v_star_ptr, dv, Df, kappa);
-    } catch (std::runtime_error& err ) {
+    } catch (std::runtime_error &err) {
       std::stringstream ss;
       ss << err.what();
       ss << ". Current kappa " << kappa;
@@ -112,6 +112,46 @@ void LogBarrierSolver::SolveMultipleNewtonSteps(
   }
 }
 
+void LogBarrierSolver::SolveGradientDescent(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &b,
+    const Eigen::Ref<const Eigen::MatrixXd> &G,
+    const Eigen::Ref<const Eigen::VectorXd> &e, const double kappa,
+    drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const {
+  const auto n_v = Q.rows();
+  MatrixXd H(n_v, n_v);
+  VectorXd Df(n_v);
+  int n_iters = 0;
+  bool converged = false;
+
+  while (n_iters < gradient_steps_limit_) {
+    CalcGradientAndHessian(Q, b, G, e, *v_star_ptr, kappa, &Df, &H);
+    VectorXd dv = -Df;
+    if (dv.norm() < tol_) {
+      converged = true;
+      break;
+    }
+    double t;
+    try {
+      t = BackStepLineSearch(Q, b, G, e, *v_star_ptr, dv, Df, kappa);
+    } catch (std::runtime_error &err) {
+      std::stringstream ss;
+      ss << err.what();
+      ss << ". Current gradient norm " << dv.norm();
+      throw std::runtime_error(ss.str());
+    }
+    *v_star_ptr += t * dv;
+    n_iters++;
+  }
+
+  if (not converged) {
+    std::stringstream ss;
+    ss << "LogBarrier gradient descent did not converge. Final gradient norm ";
+    ss << Df.norm();
+    throw std::runtime_error(ss.str());
+  }
+}
+
 void LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                              const Eigen::Ref<const Eigen::VectorXd> &b,
                              const Eigen::Ref<const Eigen::MatrixXd> &G,
@@ -124,7 +164,7 @@ void LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   try {
     SolveOneNewtonStep(Q, b, G, e, kappa_max, &v);
   } catch (std::runtime_error &exception) {
-    SolveMultipleNewtonSteps(Q, b, G, e, kappa_max, &v);
+    SolveGradientDescent(Q, b, G, e, kappa_max, &v);
   }
 
   *v_star_ptr = v;

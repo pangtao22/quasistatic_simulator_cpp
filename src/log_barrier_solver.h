@@ -31,29 +31,41 @@ public:
                            const drake::solvers::DecisionVariable &s,
                            drake::EigenPtr<Eigen::VectorXd> v0_ptr) const;
 
-  /*
-   * Optionally returns the Cholesky factorization of the Hessian at
-   * optimality.
-   */
   void Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
              const Eigen::Ref<const Eigen::VectorXd> &b,
              const Eigen::Ref<const Eigen::MatrixXd> &G,
              const Eigen::Ref<const Eigen::VectorXd> &e, double kappa_max,
              Eigen::VectorXd *v_star_ptr) const;
 
+  /*
+   * v_star_ptr should come with the starting point. It is then iteratively
+   * updated and has the optimal solution when the function returns.
+   */
   void SolveOneNewtonStep(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-             const Eigen::Ref<const Eigen::VectorXd> &b,
-             const Eigen::Ref<const Eigen::MatrixXd> &G,
-             const Eigen::Ref<const Eigen::VectorXd> &e,
-             double kappa,
-             drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
-
-  void SolveMultipleNewtonSteps(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                           const Eigen::Ref<const Eigen::VectorXd> &b,
                           const Eigen::Ref<const Eigen::MatrixXd> &G,
                           const Eigen::Ref<const Eigen::VectorXd> &e,
-                          double kappa_max,
+                          double kappa,
                           drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
+
+  /*
+   * v_star_ptr should come with the starting point. It is then iteratively
+   * updated and has the optimal solution when the function returns.
+   */
+  void
+  SolveMultipleNewtonSteps(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                           const Eigen::Ref<const Eigen::VectorXd> &b,
+                           const Eigen::Ref<const Eigen::MatrixXd> &G,
+                           const Eigen::Ref<const Eigen::VectorXd> &e,
+                           double kappa_max,
+                           drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
+
+  void SolveGradientDescent(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                            const Eigen::Ref<const Eigen::VectorXd> &b,
+                            const Eigen::Ref<const Eigen::MatrixXd> &G,
+                            const Eigen::Ref<const Eigen::VectorXd> &e,
+                            double kappa,
+                            drake::EigenPtr<Eigen::VectorXd> v_star_ptr) const;
 
   double BackStepLineSearch(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                             const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -79,6 +91,8 @@ protected:
   static constexpr int newton_steps_limit_{50};
   // Considered converge if Newton's decrement / 2 < tol_.
   static constexpr double tol_{1e-6};
+
+  static constexpr int gradient_steps_limit_{500};
 
 private:
   mutable Eigen::LLT<Eigen::MatrixXd> H_llt_;
