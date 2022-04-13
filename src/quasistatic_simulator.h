@@ -1,113 +1,20 @@
 #pragma once
-#include <Eigen/Dense>
 #include <iostream>
-#include <string>
-#include <unordered_map>
 
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
-#include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/mosek_solver.h"
 
+#include "log_barrier_solver.h"
 #include "qp_derivatives.h"
+#include "contact_jacobian_calculator.h"
 
-using ModelInstanceIndexToVecMap =
-    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::VectorXd>;
-using ModelInstanceIndexToMatrixMap =
-    std::unordered_map<drake::multibody::ModelInstanceIndex, Eigen::MatrixXd>;
-using ModelInstanceNameToIndexMap =
-    std::unordered_map<std::string, drake::multibody::ModelInstanceIndex>;
 
 /*
- * Gradient computation mode of QuasistaticSimulator.
- * Using an analogy from torch, GradientMode is the mode when "backward()" is
- *  called, after the forward dynamics is done.
- * - kNone: do not compute gradient, just roll out the dynamics.
- * - kBOnly: only computes dfdu, where x_next = f(x, u).
- * - kAB: computes both dfdx and dfdu.
- */
-enum class GradientMode { kNone, kBOnly, kAB };
-
-enum class ForwardDynamicsMode {
-  kQpMp,
-  kQpCvx,
-  kSocpMp,
-  kLogPyramidMp,
-  kLogPyramidCvx,
-  kLogIcecreamMp,
-  kLogIcecreamCvx
-};
-
-/*
-h: simulation time step in seconds.
-gravity: 3-vector indicating the gravity feild in world frame.
- WARNING: it CANNOT be changed after the simulator object is constructed.
- TODO: differentiate gravity from other simulation parameters, which are not
-  ignored when calling QuasistaticSimulator.Step(...).
-nd_per_contact: int, number of extreme rays per contact point. Only
- useful in QP mode.
-
-contact_detection_tolerance: Signed distance pairs whose distances are
- greater than this value are ignored in the simulator's non-penetration
- constraints. Unit is in meters.
-
-is_quasi_dynamic: bool. If True, dynamics of unactauted objects is
- given by sum(F) = M @ (v_(l+1) - 0). If False, it becomes sum(F) = 0 instead.
-
- The mass matrix for unactuated objects is always added when the
- unconstrained (log-barrier) version of the problem is solved. Not having a mass
- matrix can sometimes make the unconstrained program unbounded.
-
-mode:
-Note that C++ does not support modes using CVX.
-                 | Friction Cone | Force Field | Parser |
-kQpMp            | Pyramid       | No          | MP     |
-kQpCvx           | Pyramid       | No          | CVXPY  |
-kSocpMp          | Icecream      | No          | MP     |
-kLogPyramidMp    | Pyramid       | Yes         | MP     |
-kLogPyramidCvx   | Pyramid       | Yes         | CVXPY  |
-kLogIcecreamMp   | Icecream      | Yes         | MP     |
-kLogIcecreamCvx  | Icecream      | Yes         | CVXPY  |
-
-log_barrier_weight: float, used only in log-barrier modes.
-
-unactuated_mass_scale:
-scales the mass matrix of un-actuated objects by epsilon, so that
-(max_M_u_eigen_value * epsilon) * unactuated_mass_scale = min_h_squared_K.
-    If 0, the mass matrix is not scaled. Refer to the function that computes
-    mass matrix for details.
-*------------------------------C++ only-----------------------------------*
-gradient_lstsq_tolerance: float
-   When solving for A during dynamics gradient computation, i.e.
-   A * A_inv = I_n, --------(*)
-   the relative error is defined as
-   (A_sol * A_inv - I_n) / n,
-   where A_sol is the least squares solution to (*), or the pseudo-inverse
-   of A_inv.
-   A warning is printed when the relative error is greater than this number.
-*/
-// TODO: the inputs to QuasistaticSimulator's constructor should be
-//  collected into a "QuasistaticPlantParameters" structure, which
-//  cannot be changed after the constructor call. "gravity" belongs there.
-struct QuasistaticSimParameters {
-  double h{NAN};
-  Eigen::Vector3d gravity;
-  size_t nd_per_contact;
-  double contact_detection_tolerance;
-  bool is_quasi_dynamic;
-  ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
-  GradientMode gradient_mode{GradientMode::kNone};
-  double log_barrier_weight{NAN};
-  double unactuated_mass_scale{NAN};
-  // -------------------------- CPP only --------------------------
-  double gradient_lstsq_tolerance{2e-2};
-};
-
-/*
- * Denotes whether the indices are those of a configuration vector of a model
- * into the configuration vector of the system, or those of a velocity vector
- * of a model into the velocity vector of the system.
+ * Denotes whether the indices are those of a model's configuration vector
+ * into the configuration vector of the system, or those of a model's velocity
+ * vector into the velocity vector of the system.
  */
 enum class ModelIndicesMode { kQ, kV };
 
@@ -122,6 +29,11 @@ public:
 
   void UpdateMbpPositions(const ModelInstanceIndexToVecMap &q_dict);
   void UpdateMbpPositions(const Eigen::Ref<const Eigen::VectorXd> &q);
+  // These methods are naturally const because context will eventually be
+  // moved outside this class.
+  void UpdateMbpAdPositions(const ModelInstanceIndexToVecAdMap &q_dict) const;
+  void
+  UpdateMbpAdPositions(const Eigen::Ref<const drake::AutoDiffVecXd> &q) const;
 
   [[nodiscard]] ModelInstanceIndexToVecMap GetMbpPositions() const;
   [[nodiscard]] Eigen::VectorXd GetMbpPositionsAsVec() const {
@@ -168,6 +80,10 @@ public:
   };
 
   [[nodiscard]] const QuasistaticSimParameters &get_sim_params() const {
+    return sim_params_;
+  }
+
+  [[nodiscard]] QuasistaticSimParameters &get_mutable_sim_params() {
     return sim_params_;
   }
 
@@ -240,29 +156,6 @@ private:
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
                      ModelIndicesMode mode) const;
 
-  [[nodiscard]] double GetFrictionCoefficientForSignedDistancePair(
-      drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const;
-
-  [[nodiscard]] drake::multibody::BodyIndex
-  GetMbpBodyFromGeometry(drake::geometry::GeometryId g_id) const;
-
-  [[nodiscard]] std::unique_ptr<drake::multibody::ModelInstanceIndex>
-      FindModelForBody(drake::multibody::BodyIndex) const;
-
-  void CalcJacobianAndPhi(const double contact_detection_tol,
-                          Eigen::VectorXd *phi_ptr,
-                          Eigen::VectorXd *phi_constraints_ptr,
-                          Eigen::MatrixXd *Jn_ptr,
-                          Eigen::MatrixXd *J_ptr) const;
-
-  void UpdateJacobianRows(const drake::multibody::BodyIndex &body_idx,
-                          const Eigen::Ref<const Eigen::Vector3d> &pC_Body,
-                          const Eigen::Ref<const Eigen::Vector3d> &n_W,
-                          const Eigen::Ref<const Eigen::Matrix3Xd> &d_W,
-                          int i_c, int n_d, int i_f_start,
-                          drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
-                          drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const;
-
   void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                     const ModelInstanceIndexToVecMap &tau_ext_dict,
@@ -275,11 +168,25 @@ private:
                            const ModelInstanceIndexToVecMap &q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+                           const ModelInstanceIndexToVecMap &q_dict,
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_d) const;
   static Eigen::Matrix<double, 4, 3>
-  GetE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+  CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  void
+  CalcUnconstrainedBFromHessian(
+      const Eigen::LLT<Eigen::MatrixXd> &H_llt,
+      const QuasistaticSimParameters &params,
+      const ModelInstanceIndexToVecMap &q_dict,
+      Eigen::MatrixXd* B_ptr) const;
+
+  std::vector<drake::geometry::SignedDistancePair<double>>
+  CalcCollisionPairs(double contact_detection_tolerance) const;
+
+  std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
+  CalcSignedDistancePairsFromCollisionPairs() const;
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
@@ -297,20 +204,53 @@ private:
                            Eigen::VectorXd *phi,
                            Eigen::VectorXd *phi_constraints) const;
 
-  void StepForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-                     const Eigen::Ref<const Eigen::MatrixXd> &J,
-                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                     const QuasistaticSimParameters &params,
-                     ModelInstanceIndexToVecMap *q_dict_ptr,
-                     Eigen::VectorXd *v_star_ptr,
-                     Eigen::VectorXd *beta_star_ptr);
+  void CalcIcecreamMatrices(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+                           const ModelInstanceIndexToVecMap &tau_ext_dict,
+                           const QuasistaticSimParameters &params,
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
+                           std::vector<Eigen::Matrix3Xd> *J_list,
+                           Eigen::VectorXd *phi) const;
 
-  void StepForwardLogPyramid(
+  void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                 const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                 const Eigen::Ref<const Eigen::MatrixXd> &J,
+                 const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                 const QuasistaticSimParameters &params,
+                 ModelInstanceIndexToVecMap *q_dict_ptr,
+                 Eigen::VectorXd *v_star_ptr,
+                 Eigen::VectorXd *beta_star_ptr);
+
+  void ForwardSocp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                 const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                 const std::vector<Eigen::Matrix3Xd> &J_list,
+                 const Eigen::Ref<const Eigen::VectorXd> &phi,
+                 const QuasistaticSimParameters &params,
+                 ModelInstanceIndexToVecMap *q_dict_ptr,
+                 Eigen::VectorXd *v_star_ptr,
+                 Eigen::VectorXd *beta_star_ptr);
+
+  void ForwardLogPyramid(
       const Eigen::Ref<const Eigen::MatrixXd> &Q,
       const Eigen::Ref<const Eigen::VectorXd> &tau_h,
       const Eigen::Ref<const Eigen::MatrixXd> &J,
       const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
+
+  void ForwardLogPyramidMySolver(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const Eigen::Ref<const Eigen::MatrixXd> &J,
+      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+      const QuasistaticSimParameters &params,
+      ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
+
+  void ForwardLogIcecream(
+      const Eigen::Ref<const Eigen::MatrixXd> &Q,
+      const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+      const std::vector<Eigen::Matrix3Xd> &J_list,
+      const Eigen::Ref<const Eigen::VectorXd> &phi,
       const QuasistaticSimParameters &params,
       ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr);
 
@@ -320,22 +260,33 @@ private:
                   const Eigen::Ref<const Eigen::MatrixXd> &J,
                   const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
                   const ModelInstanceIndexToVecMap &q_dict,
+                  const ModelInstanceIndexToVecMap &q_dict_next,
                   const Eigen::Ref<const Eigen::VectorXd> &v_star,
                   const Eigen::Ref<const Eigen::VectorXd> &beta_star,
                   const QuasistaticSimParameters &params);
 
-  void BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
-                  const Eigen::Ref<const Eigen::MatrixXd> &J,
-                  const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                  const ModelInstanceIndexToVecMap &q_dict,
-                  const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                  const QuasistaticSimParameters &params);
+  void
+  BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                     const Eigen::Ref<const Eigen::MatrixXd> &J,
+                     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+                     const ModelInstanceIndexToVecMap &q_dict,
+                     const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                     const QuasistaticSimParameters &params,
+                     Eigen::LLT<Eigen::MatrixXd>const * const H_llt);
+
+  void
+  BackwardLogIcecream(
+                     const ModelInstanceIndexToVecMap &q_dict,
+                     const QuasistaticSimParameters &params,
+                     const Eigen::LLT<Eigen::MatrixXd>& H_llt);
 
   QuasistaticSimParameters sim_params_;
 
   // Solvers.
   std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
   std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
+  std::unique_ptr<QpLogBarrierSolver> solver_log_pyramid_;
+  std::unique_ptr<SocpLogBarrierSolver> solver_log_icecream_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
   drake::solvers::SolverOptions solver_options_;
 
@@ -350,13 +301,28 @@ private:
   drake::multibody::MultibodyPlant<double> *plant_{nullptr};
   drake::geometry::SceneGraph<double> *sg_{nullptr};
 
+  // AutoDiff Systems.
+  std::unique_ptr<drake::systems::Diagram<drake::AutoDiffXd>> diagram_ad_;
+  const drake::multibody::MultibodyPlant<drake::AutoDiffXd> *plant_ad_{nullptr};
+  const drake::geometry::SceneGraph<drake::AutoDiffXd> *sg_ad_{nullptr};
+
   // Contexts.
   std::unique_ptr<drake::systems::Context<double>> context_; // Diagram.
   drake::systems::Context<double> *context_plant_{nullptr};
   drake::systems::Context<double> *context_sg_{nullptr};
 
+  // AutoDiff contexts
+  std::unique_ptr<drake::systems::Context<drake::AutoDiffXd>> context_ad_;
+  mutable drake::systems::Context<drake::AutoDiffXd> *context_plant_ad_{
+      nullptr};
+  mutable drake::systems::Context<drake::AutoDiffXd> *context_sg_ad_{nullptr};
+
   // Internal state (for interfacing with QuasistaticSystem).
   const drake::geometry::QueryObject<double> *query_object_{nullptr};
+  mutable std::vector<CollisionPair> collision_pairs_;
+  mutable const drake::geometry::QueryObject<drake::AutoDiffXd>
+      *query_object_ad_{nullptr};
+
   drake::multibody::ContactResults<double> contact_results_;
 
   // MBP introspection.
@@ -375,14 +341,7 @@ private:
       velocity_indices_;
   std::unordered_map<drake::multibody::ModelInstanceIndex, std::vector<int>>
       position_indices_;
-  std::unordered_map<drake::multibody::ModelInstanceIndex,
-                     std::unordered_set<drake::multibody::BodyIndex>>
-      bodies_indices_;
 
-  // friction_coefficients[g_idA][g_idB] and friction_coefficients[g_idB][g_idA]
-  //  gives the coefficient of friction between contact geometries g_idA
-  //  and g_idB.
-  std::unordered_map<drake::geometry::GeometryId,
-                     std::unordered_map<drake::geometry::GeometryId, double>>
-      friction_coefficients_;
+  std::unique_ptr<ContactJacobianCalculator<double>> cjc_;
+  std::unique_ptr<ContactJacobianCalculator<drake::AutoDiffXd>> cjc_ad_;
 };

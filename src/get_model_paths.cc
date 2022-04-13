@@ -1,17 +1,38 @@
 #include "get_model_paths.h"
 
+#include "drake/common/drake_path.h"
+
 using std::filesystem::current_path;
 using std::filesystem::path;
 
 std::filesystem::path GetPyPackagesPath() {
-  auto file_path = path(__FILE__);
-  return file_path.parent_path() / path("../../..") / path("PycharmProjects");
+  static auto file_path = path(__FILE__);
+  static auto py_package_path =
+      file_path.parent_path() / path("../../..") / path("PycharmProjects");
+  return py_package_path;
 }
 
 std::filesystem::path GetQsimModelsPath() {
-  return GetPyPackagesPath() / path("quasistatic_simulator/models");
+  static auto q_sim_models_path =
+      GetPyPackagesPath() / path("quasistatic_simulator/models");
+  return q_sim_models_path;
 }
 
 std::filesystem::path GetRoboticsUtilitiesModelsPath() {
-  return GetPyPackagesPath() / path("robotics_utilities/models");
+  static auto robo_util_models_path =
+      GetPyPackagesPath() / path("robotics_utilities/models");
+  return robo_util_models_path;
 }
+
+std::unordered_map<std::string, std::filesystem::path> GetPackageMap() {
+  auto drake_path = path(drake::MaybeGetDrakePath().value());
+
+  static std::unordered_map<std::string, std::filesystem::path> package_map = {
+      {"quasistatic_simulator", GetQsimModelsPath()},
+      {"drake_manipulation_models", drake_path / "manipulation" / "models"}
+  };
+
+  return package_map;
+}
+
+

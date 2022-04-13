@@ -10,6 +10,14 @@
 #include "get_model_paths.h"
 #include "quasistatic_simulator.h"
 
+using drake::AutoDiffXd;
+using drake::Matrix3X;
+using drake::MatrixX;
+using drake::Vector3;
+using drake::Vector4;
+using drake::VectorX;
+using drake::math::ExtractValue;
+using drake::math::InitializeAutoDiff;
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
@@ -32,6 +40,9 @@ void CreateMbp(
     std::unordered_map<ModelInstanceIndex, Eigen::VectorXd> *robot_stiffness) {
   std::tie(*plant, *scene_graph) =
       drake::multibody::AddMultibodyPlantSceneGraph(builder, 1e-3);
+  // Set name so that MBP and SceneGraph can be accessed by name.
+  (*plant)->set_name(kMultiBodyPlantName);
+  (*scene_graph)->set_name(kSceneGraphName);
   auto parser = drake::multibody::Parser(*plant, *scene_graph);
   // TODO: add package paths from yaml file? Hard-coding paths is clearly not
   //  the solution...
@@ -46,7 +57,7 @@ void CreateMbp(
       *plant, nullptr, &parser);
 
   // Objects.
-  // Use a set to sort object names.
+  // Use a Set to sort object names.
   std::set<std::string> object_names;
   for (const auto &item : object_sdf_paths) {
     object_names.insert(item.first);
@@ -59,6 +70,7 @@ void CreateMbp(
   // Robots.
   for (const auto &[name, Kp] : robot_stiffness_str) {
     auto robot_model = (*plant)->GetModelInstanceByName(name);
+
     robot_models->insert(robot_model);
     (*robot_stiffness)[robot_model] = Kp;
   }
@@ -68,28 +80,6 @@ void CreateMbp(
   (*plant)->Finalize();
 }
 
-Eigen::Matrix3Xd CalcTangentVectors(const Vector3d &normal, const size_t nd) {
-  Eigen::Vector3d n = normal.normalized();
-  Eigen::Vector4d n4(n.x(), n.y(), n.z(), 0);
-  Eigen::Matrix3Xd tangents(3, nd);
-  if (nd == 2) {
-    // Makes sure that dC is in the yz plane.
-    Eigen::Vector4d n_x4(1, 0, 0, 0);
-    tangents.col(0) = n_x4.cross3(n4).head(3);
-    tangents.col(1) = -tangents.col(0);
-  } else {
-    const auto R = drake::math::RotationMatrixd::MakeFromOneUnitVector(n, 2);
-
-    for (int i = 0; i < nd; i++) {
-      const double theta = 2 * M_PI / nd * i;
-      tangents.col(i) << cos(theta), sin(theta), 0;
-    }
-    tangents = R * tangents;
-  }
-
-  return tangents;
-}
-
 QuasistaticSimulator::QuasistaticSimulator(
     const std::string &model_directive_path,
     const std::unordered_map<std::string, Eigen::VectorXd> &robot_stiffness_str,
@@ -97,7 +87,9 @@ QuasistaticSimulator::QuasistaticSimulator(
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
       solver_grb_(std::make_unique<drake::solvers::GurobiSolver>()),
-      solver_msk_(std::make_unique<drake::solvers::MosekSolver>()) {
+      solver_msk_(std::make_unique<drake::solvers::MosekSolver>()),
+      solver_log_pyramid_(std::make_unique<QpLogBarrierSolver>()),
+      solver_log_icecream_(std::make_unique<SocpLogBarrierSolver>()) {
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -121,13 +113,13 @@ QuasistaticSimulator::QuasistaticSimulator(
   for (const auto &model : models_all_) {
     velocity_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kV);
     position_indices_[model] = GetIndicesForModel(model, ModelIndicesMode::kQ);
-    const auto body_indices = plant_->GetBodyIndices(model);
-    bodies_indices_[model].insert(body_indices.begin(), body_indices.end());
   }
 
   n_v_a_ = 0;
   for (const auto &model : models_actuated_) {
-    n_v_a_ += plant_->num_velocities(model);
+    auto n_v_a_i = plant_->num_velocities(model);
+    DRAKE_THROW_UNLESS(n_v_a_i == robot_stiffness_[model].size());
+    n_v_a_ += n_v_a_i;
   }
 
   n_v_u_ = 0;
@@ -159,15 +151,6 @@ QuasistaticSimulator::QuasistaticSimulator(
     is_3d_floating_[model] = false;
   }
 
-  // friction coefficients.
-  const auto &inspector = sg_->model_inspector();
-  const auto cc = inspector.GetCollisionCandidates();
-  for (const auto &[g_idA, g_idB] : cc) {
-    const double mu = GetFrictionCoefficientForSignedDistancePair(g_idA, g_idB);
-    friction_coefficients_[g_idA][g_idB] = mu;
-    friction_coefficients_[g_idB][g_idA] = mu;
-  }
-
   // QP derivative.
   dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
@@ -180,6 +163,29 @@ QuasistaticSimulator::QuasistaticSimulator(
     i++;
   }
   min_K_a_ = min_stiffness_vec.minCoeff();
+
+  // AutoDiff plants.
+  diagram_ad_ =
+      drake::systems::System<double>::ToAutoDiffXd<drake::systems::Diagram>(
+          *diagram_);
+  plant_ad_ =
+      dynamic_cast<const drake::multibody::MultibodyPlant<AutoDiffXd> *>(
+          &(diagram_ad_->GetSubsystemByName(plant_->get_name())));
+  sg_ad_ = dynamic_cast<const drake::geometry::SceneGraph<drake::AutoDiffXd> *>(
+      &(diagram_ad_->GetSubsystemByName(sg_->get_name())));
+
+  // AutoDiff contexts.
+  context_ad_ = diagram_ad_->CreateDefaultContext();
+  context_plant_ad_ =
+      &(diagram_ad_->GetMutableSubsystemContext(*plant_ad_, context_ad_.get()));
+  context_sg_ad_ =
+      &(diagram_ad_->GetMutableSubsystemContext(*sg_ad_, context_ad_.get()));
+
+  // ContactComputers.
+  cjc_ = std::make_unique<ContactJacobianCalculator<double>>(diagram_.get(),
+                                                             models_all_);
+  cjc_ad_ = std::make_unique<ContactJacobianCalculator<AutoDiffXd>>(
+      diagram_ad_.get(), models_all_);
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -206,28 +212,6 @@ std::vector<int> QuasistaticSimulator::GetIndicesForModel(
   return indices;
 }
 
-double QuasistaticSimulator::GetFrictionCoefficientForSignedDistancePair(
-    drake::geometry::GeometryId id_A, drake::geometry::GeometryId id_B) const {
-  const auto &inspector = sg_->model_inspector();
-  const auto props_A = inspector.GetProximityProperties(id_A);
-  const auto props_B = inspector.GetProximityProperties(id_B);
-  const auto &geometryA_friction =
-      props_A->GetProperty<drake::multibody::CoulombFriction<double>>(
-          "material", "coulomb_friction");
-  const auto &geometryB_friction =
-      props_B->GetProperty<drake::multibody::CoulombFriction<double>>(
-          "material", "coulomb_friction");
-  auto cf = drake::multibody::CalcContactFrictionFromSurfaceProperties(
-      geometryA_friction, geometryB_friction);
-  return cf.static_friction();
-}
-
-drake::multibody::BodyIndex QuasistaticSimulator::GetMbpBodyFromGeometry(
-    drake::geometry::GeometryId g_id) const {
-  const auto &inspector = sg_->model_inspector();
-  return plant_->GetBodyFromFrameId(inspector.GetFrameId(g_id))->index();
-}
-
 /*
  * Similar to the python implementation, this function updates context_plant_
  * and query_object_.
@@ -251,6 +235,26 @@ void QuasistaticSimulator::UpdateMbpPositions(
           *context_sg_));
 }
 
+void QuasistaticSimulator::UpdateMbpAdPositions(
+    const ModelInstanceIndexToVecAdMap &q_dict) const {
+  for (const auto &model : models_all_) {
+    plant_ad_->SetPositions(context_plant_ad_, model, q_dict.at(model));
+  }
+
+  query_object_ad_ =
+      &(sg_ad_->get_query_output_port()
+            .Eval<drake::geometry::QueryObject<AutoDiffXd>>(*context_sg_ad_));
+}
+
+void QuasistaticSimulator::UpdateMbpAdPositions(
+    const Eigen::Ref<const drake::AutoDiffVecXd> &q) const {
+  plant_ad_->SetPositions(context_plant_ad_, q);
+
+  query_object_ad_ =
+      &(sg_ad_->get_query_output_port()
+            .Eval<drake::geometry::QueryObject<AutoDiffXd>>(*context_sg_ad_));
+}
+
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
   ModelInstanceIndexToVecMap q_dict;
   for (const auto &model : models_all_) {
@@ -262,123 +266,6 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetMbpPositions() const {
 Eigen::VectorXd QuasistaticSimulator::GetPositions(
     drake::multibody::ModelInstanceIndex model) const {
   return plant_->GetPositions(*context_plant_, model);
-}
-
-/*
- * Returns nullptr if body_idx is not in any of the values of bodies_indices_;
- * Otherwise returns the model instance to which body_idx belongs.
- */
-std::unique_ptr<ModelInstanceIndex> QuasistaticSimulator::FindModelForBody(
-    drake::multibody::BodyIndex body_idx) const {
-  for (const auto &[model, body_indices] : bodies_indices_) {
-    auto search = body_indices.find(body_idx);
-    if (search != body_indices.end()) {
-      return std::make_unique<ModelInstanceIndex>(model);
-    }
-  }
-  return nullptr;
-}
-
-void QuasistaticSimulator::UpdateJacobianRows(
-    const drake::multibody::BodyIndex &body_idx,
-    const Eigen::Ref<const Eigen::Vector3d> &pC_Body,
-    const Eigen::Ref<const Eigen::Vector3d> &n_W,
-    const Eigen::Ref<const Eigen::Matrix3Xd> &d_W, int i_c, int n_d,
-    int i_f_start, drake::EigenPtr<Eigen::MatrixXd> Jn_ptr,
-    drake::EigenPtr<Eigen::MatrixXd> Jf_ptr) const {
-  Eigen::Matrix3Xd Ji(3, plant_->num_velocities());
-  const auto &frameB = plant_->get_body(body_idx).body_frame();
-  plant_->CalcJacobianTranslationalVelocity(
-      *context_plant_, drake::multibody::JacobianWrtVariable::kV, frameB,
-      pC_Body, plant_->world_frame(), plant_->world_frame(), &Ji);
-
-  (*Jn_ptr).row(i_c) += n_W.transpose() * Ji;
-  for (int i = 0; i < n_d; i++) {
-    (*Jf_ptr).row(i + i_f_start) += d_W.col(i).transpose() * Ji;
-  }
-}
-
-void QuasistaticSimulator::CalcJacobianAndPhi(
-    const double contact_detection_tol, VectorXd *phi_ptr,
-    VectorXd *phi_constraints_ptr, MatrixXd *Jn_ptr, MatrixXd *J_ptr) const {
-  VectorXd &phi = *phi_ptr;
-  VectorXd &phi_constraints = *phi_constraints_ptr;
-  MatrixXd &Jn = *Jn_ptr;
-  MatrixXd &J = *J_ptr;
-
-  // Collision queries.
-  const auto &sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
-      contact_detection_tol);
-
-  // Contact Jacobians.
-  const auto n_c = sdps.size();
-  const int n_v = plant_->num_velocities();
-  const int n_d = sim_params_.nd_per_contact;
-  const auto n_f = n_d * n_c;
-
-  phi.resize(n_c);
-  Jn.resize(n_c, n_v);
-  Jn.setZero();
-
-  VectorXd U(n_c);
-  MatrixXd Jf(n_f, n_v);
-  Jf.setZero();
-  const auto &inspector = sg_->model_inspector();
-
-  int i_f_start = 0;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    const auto &sdp = sdps[i_c];
-    phi[i_c] = sdp.distance;
-    U[i_c] = friction_coefficients_.at(sdp.id_A).at(sdp.id_B);
-    const auto bodyA_idx = GetMbpBodyFromGeometry(sdp.id_A);
-    const auto bodyB_idx = GetMbpBodyFromGeometry(sdp.id_B);
-    const auto &X_AGa = inspector.GetPoseInFrame(sdp.id_A);
-    const auto &X_AGb = inspector.GetPoseInFrame(sdp.id_B);
-    const auto p_ACa_A = X_AGa * sdp.p_ACa;
-    const auto p_BCb_B = X_AGb * sdp.p_BCb;
-
-    const auto model_A_ptr = FindModelForBody(bodyA_idx);
-    const auto model_B_ptr = FindModelForBody(bodyB_idx);
-
-    if (model_A_ptr and model_B_ptr) {
-      const auto n_A_W = sdp.nhat_BA_W;
-      const auto d_A_W = CalcTangentVectors(n_A_W, n_d);
-      const auto n_B_W = -n_A_W;
-      const auto d_B_W = -d_A_W;
-      UpdateJacobianRows(bodyA_idx, p_ACa_A, n_A_W, d_A_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
-      UpdateJacobianRows(bodyB_idx, p_BCb_B, n_B_W, d_B_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
-    } else if (model_A_ptr) {
-      const auto n_A_W = sdp.nhat_BA_W;
-      const auto d_A_W = CalcTangentVectors(n_A_W, n_d);
-      UpdateJacobianRows(bodyA_idx, p_ACa_A, n_A_W, d_A_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
-    } else if (model_B_ptr) {
-      const auto n_B_W = -sdp.nhat_BA_W;
-      const auto d_B_W = CalcTangentVectors(n_B_W, n_d);
-      UpdateJacobianRows(bodyB_idx, p_BCb_B, n_B_W, d_B_W, i_c, n_d, i_f_start,
-                         &Jn, &Jf);
-    } else {
-      throw std::runtime_error(
-          "One body in a contact pair is not in body_indices_");
-    }
-    i_f_start += n_d;
-  }
-
-  // Jacobian for constraints.
-  phi_constraints.resize(n_f);
-  J = Jf;
-
-  int j_start = 0;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    for (int j = 0; j < n_d; j++) {
-      int idx = j_start + j;
-      J.row(idx) = Jn.row(i_c) + U[i_c] * Jf.row(idx);
-      phi_constraints[idx] = phi[i_c];
-    }
-    j_start += n_d;
-  }
 }
 
 void QuasistaticSimulator::CalcQAndTauH(
@@ -436,37 +323,68 @@ void QuasistaticSimulator::CalcQAndTauH(
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
-  // TODO: handle this better.
   const auto fm = params.forward_mode;
-  auto q_dict = GetMbpPositions();
+  const auto q_dict = GetMbpPositions();
+  auto q_dict_next(q_dict);
 
-  if (fm == ForwardDynamicsMode::kQpMp) {
+  if (kPyramidModes.find(fm) != kPyramidModes.end()) {
     // Optimization coefficient matrices and vectors.
     MatrixXd Q, Jn, J;
     VectorXd tau_h, phi, phi_constraints;
     // Primal and dual solutions.
     VectorXd v_star, beta_star;
-
     CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                         &Jn, &J, &phi, &phi_constraints);
-    StepForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict, &v_star,
-                  &beta_star);
-    BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, v_star, beta_star,
-               params);
-    return;
+
+    if (fm == ForwardDynamicsMode::kQpMp) {
+      ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
+                &beta_star);
+      BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
+                 beta_star, params);
+      return;
+    }
+
+    if (fm == ForwardDynamicsMode::kLogPyramidMp) {
+      ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
+                        &v_star);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
+                         nullptr);
+      return;
+    }
+
+    if (fm == ForwardDynamicsMode::kLogPyramidMy) {
+      ForwardLogPyramidMySolver(Q, tau_h, J, phi_constraints, params,
+                                &q_dict_next, &v_star);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
+                         &solver_log_pyramid_->get_H_llt());
+      return;
+    }
   }
 
-  if (fm == ForwardDynamicsMode::kLogPyramidMp) {
-    MatrixXd Q, Jn, J;
-    VectorXd tau_h, phi, phi_constraints;
-    // Primal and dual solutions.
-    VectorXd v_star;
-    CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
-                        &Jn, &J, &phi, &phi_constraints);
-    StepForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict,
-                          &v_star);
-    BackwardLogPyramid(Q, J, phi_constraints, q_dict, v_star, params);
-    return;
+  if (kIcecreamModes.find(fm) != kIcecreamModes.end()) {
+    MatrixXd Q;
+    VectorXd tau_h, phi;
+    std::vector<Eigen::Matrix3Xd> J_list;
+    VectorXd v_star, beta_star;
+    CalcIcecreamMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
+                         &J_list, &phi);
+
+    if (fm == ForwardDynamicsMode::kSocpMp) {
+      ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
+                  &beta_star);
+      if (params.gradient_mode != GradientMode::kNone) {
+        throw std::logic_error(
+            "Gradient not supported yet for Forward Mode kSocpMp");
+      }
+      return;
+    }
+
+    if (fm == ForwardDynamicsMode::kLogIcecream) {
+      ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
+      BackwardLogIcecream(q_dict_next, params,
+                          solver_log_icecream_->get_H_llt());
+      return;
+    }
   }
 
   std::stringstream ss;
@@ -482,13 +400,27 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
     Eigen::VectorXd *tau_h, Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
     Eigen::VectorXd *phi, Eigen::VectorXd *phi_constraints) const {
-  CalcJacobianAndPhi(params.contact_detection_tolerance, phi, phi_constraints,
-                     Jn, J);
+  const auto sdps = CalcCollisionPairs(params.contact_detection_tolerance);
+  cjc_->CalcJacobianAndPhiQp(context_plant_, sdps, params.nd_per_contact, phi,
+                             phi_constraints, Jn, J);
   CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
                params.unactuated_mass_scale);
 }
 
-void QuasistaticSimulator::StepForwardQp(
+void QuasistaticSimulator::CalcIcecreamMatrices(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_a_cmd_dict,
+    const ModelInstanceIndexToVecMap &tau_ext_dict,
+    const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
+    Eigen::VectorXd *tau_h, std::vector<Eigen::Matrix3Xd> *J_list,
+    Eigen::VectorXd *phi) const {
+  const auto sdps = CalcCollisionPairs(params.contact_detection_tolerance);
+  cjc_->CalcJacobianAndPhiSocp(context_plant_, sdps, phi, J_list);
+  CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
+               params.unactuated_mass_scale);
+}
+
+void QuasistaticSimulator::ForwardQp(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
     const Eigen::Ref<const Eigen::MatrixXd> &J,
@@ -505,7 +437,7 @@ void QuasistaticSimulator::StepForwardQp(
   // construct and solve MathematicalProgram.
   drake::solvers::MathematicalProgram prog;
   auto v = prog.NewContinuousVariables(n_v_, "v");
-  prog.AddQuadraticCost(Q, -tau_h, v);
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
 
   const VectorXd e = phi_constraints / h;
   auto constraints = prog.AddLinearConstraint(
@@ -527,73 +459,48 @@ void QuasistaticSimulator::StepForwardQp(
   UpdateMbpPositions(q_dict);
 }
 
-void QuasistaticSimulator::BackwardQp(
+void QuasistaticSimulator::ForwardSocp(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
-    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-    const Eigen::Ref<const Eigen::MatrixXd> &J,
-    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-    const ModelInstanceIndexToVecMap &q_dict,
-    const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const Eigen::Ref<const Eigen::VectorXd> &beta_star,
-    const QuasistaticSimParameters &params) {
-  if (params.gradient_mode == GradientMode::kNone) {
-    return;
-  }
+    const std::vector<Eigen::Matrix3Xd> &J_list,
+    const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
+    Eigen::VectorXd *beta_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+  VectorXd &v_star = *v_star_ptr;
   const auto h = params.h;
-  const auto n_d = params.nd_per_contact;
-  dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
-                      0.1 * params.h);
+  const auto n_c = phi.size();
 
-  if (params.gradient_mode == GradientMode::kAB) {
-    const auto &Dv_nextDe = dqp_->get_DzDe();
-    const auto &Dv_nextDb = dqp_->get_DzDb();
-    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, h, Jn, n_d);
-    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-    return;
+  drake::solvers::MathematicalProgram prog;
+  auto v = prog.NewContinuousVariables(n_v_, "v");
+
+  prog.AddQuadraticCost(Q, -tau_h, v, true);
+
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    Vector3d e = Vector3d::Zero();
+    const double mu = cjc_->get_friction_coefficient(i_c);
+    e[0] = phi[i_c] / mu / h;
+
+    prog.AddLorentzConeConstraint(J_list.at(i_c), e, v);
   }
 
-  if (params.gradient_mode == GradientMode::kBOnly) {
-    const auto &Dv_nextDb = dqp_->get_DzDb();
-    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict);
-    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
-    return;
+  solver_grb_->Solve(prog, {}, solver_options_, &mp_result_);
+  if (!mp_result_.is_success()) {
+    throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
   }
 
-  throw std::runtime_error("Invalid gradient_mode.");
+  v_star = mp_result_.GetSolution(v);
+  // TODO: return dual variables.
+
+  // Update q_dict.
+  UpdateQdictFromV(v_star, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
 }
 
-void QuasistaticSimulator::BackwardLogPyramid(const Eigen::Ref<const
-    Eigen::MatrixXd> &Q,
-                        const Eigen::Ref<const Eigen::MatrixXd> &J,
-                        const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
-                        const ModelInstanceIndexToVecMap &q_dict,
-                        const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                        const QuasistaticSimParameters &params) {
-  if (params.gradient_mode == GradientMode::kNone) {
-    return;
-  }
-
-  if (params.gradient_mode == GradientMode::kBOnly) {
-    Eigen::MatrixXd H(Q);
-    for (int i = 0; i < J.rows(); i++) {
-      double d = phi_constraints[i] / params.h + J.row(i) * v_star;
-      H += J.row(i).transpose() * J.row(i) / d / d / params.log_barrier_weight;
-    }
-    MatrixXd Dv_nextDb(n_v_, n_v_);
-    Dv_nextDb.setIdentity();
-    Dv_nextDb *= -1;
-    H.llt().solveInPlace(Dv_nextDb);  // H is positive definite.
-
-    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict);
-    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
-    return;
-  }
-
-  throw std::runtime_error("Invalid gradient_mode.");
-}
-
-void QuasistaticSimulator::StepForwardLogPyramid(
+void QuasistaticSimulator::ForwardLogPyramid(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &tau_h,
     const Eigen::Ref<const Eigen::MatrixXd> &J,
@@ -613,6 +520,8 @@ void QuasistaticSimulator::StepForwardLogPyramid(
   prog.AddLinearCost(-VectorXd::Constant(n_f, 1 / params.log_barrier_weight), 0,
                      s);
 
+  drake::solvers::VectorXDecisionVariable v_s_i(n_v_ + 1);
+  v_s_i.head(n_v_) = v;
   for (int i = 0; i < n_f; i++) {
     MatrixXd A = MatrixXd::Zero(3, n_v_ + 1);
     A.row(0).head(n_v_) = J.row(i);
@@ -620,8 +529,6 @@ void QuasistaticSimulator::StepForwardLogPyramid(
 
     Vector3d b(phi_constraints[i] / h, 1, 0);
 
-    drake::solvers::VectorXDecisionVariable v_s_i(n_v_ + 1);
-    v_s_i.head(n_v_) = v;
     v_s_i[n_v_] = s[i];
     prog.AddExponentialConeConstraint(A.sparseView(), b, v_s_i);
   }
@@ -639,6 +546,157 @@ void QuasistaticSimulator::StepForwardLogPyramid(
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::ForwardLogPyramidMySolver(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+
+  solver_log_pyramid_->Solve(Q, -tau_h, -J, phi_constraints / params.h,
+                             params.log_barrier_weight, v_star_ptr);
+
+  // Update q_dict.
+  UpdateQdictFromV(*v_star_ptr, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::ForwardLogIcecream(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const std::vector<Eigen::Matrix3Xd> &J_list,
+    const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const QuasistaticSimParameters &params,
+    ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr) {
+  auto &q_dict = *q_dict_ptr;
+
+  const auto h = params.h;
+
+  const auto n_c = J_list.size();
+  const auto n_v = Q.rows();
+
+  MatrixXd J(n_c * 3, n_v);
+  VectorXd phi_h_mu(n_c);
+  for (int i = 0; i < n_c; i++) {
+    J.block(i * 3, 0, 3, n_v) = J_list.at(i);
+    phi_h_mu[i] = phi[i] / h / cjc_->get_friction_coefficient(i);
+  }
+
+  solver_log_icecream_->Solve(Q, -tau_h, -J, phi_h_mu,
+                              params.log_barrier_weight, v_star_ptr);
+
+  // Update q_dict.
+  UpdateQdictFromV(*v_star_ptr, params, &q_dict);
+
+  // Update context_plant_ using the new q_dict.
+  UpdateMbpPositions(q_dict);
+}
+
+void QuasistaticSimulator::BackwardQp(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_dict_next,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+    const QuasistaticSimParameters &params) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+  const auto h = params.h;
+  const auto n_d = params.nd_per_contact;
+
+  if (params.gradient_mode == GradientMode::kAB) {
+    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
+                        0.1 * params.h, true);
+    const auto &Dv_nextDe = dqp_->get_DzDe();
+    const auto &Dv_nextDb = dqp_->get_DzDb();
+
+    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, q_dict, h, Jn, n_d);
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
+                        0.1 * params.h, false);
+    const auto &Dv_nextDb = dqp_->get_DzDb();
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::runtime_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::BackwardLogPyramid(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::MatrixXd> &J,
+    const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const QuasistaticSimParameters &params,
+    Eigen::LLT<MatrixXd> const *const H_llt) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    if (H_llt) {
+      CalcUnconstrainedBFromHessian(*H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    } else {
+      Eigen::MatrixXd H(n_v_, n_v_);
+      // not used, but needed by CalcGradientAndHessian.
+      Eigen::VectorXd Df(n_v_);
+      solver_log_pyramid_->CalcGradientAndHessian(
+          Q, VectorXd::Zero(n_v_), -J, phi_constraints / params.h, v_star,
+          params.log_barrier_weight, &Df, &H);
+
+      CalcUnconstrainedBFromHessian(H.llt(), params, q_dict, &Dq_nextDqa_cmd_);
+    }
+
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::logic_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::BackwardLogIcecream(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const QuasistaticSimParameters &params,
+    const Eigen::LLT<Eigen::MatrixXd> &H_llt) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::logic_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::CalcUnconstrainedBFromHessian(
+    const Eigen::LLT<Eigen::MatrixXd> &H_llt,
+    const QuasistaticSimParameters &params,
+    const ModelInstanceIndexToVecMap &q_dict, Eigen::MatrixXd *B_ptr) const {
+  MatrixXd Dv_nextDb(n_v_, n_v_);
+  Dv_nextDb.setIdentity();
+  Dv_nextDb *= -params.log_barrier_weight;
+  H_llt.solveInPlace(Dv_nextDb);
+  *B_ptr = CalcDfDu(Dv_nextDb, params.h, q_dict);
 }
 
 ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(
@@ -755,7 +813,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
     if (is_3d_floating_.at(model)) {
       // If q contains a quaternion.
       const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
-      const Eigen::Matrix<double, 4, 3> E = GetE(Q_WB);
+      const Eigen::Matrix<double, 4, 3> E = CalcE(Q_WB);
 
       MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_a_);
       for (int i = 0; i < 3; i++) {
@@ -785,14 +843,39 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
   return h * Dq_dot_nextDqa_cmd;
 }
 
+/*
+ * Arranges DGactiveDq[i] into a (n_lambda_active, n_v) matrix.
+ */
+std::vector<MatrixXd>
+CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &J_ad,
+               const std::vector<int> &lambda_star_active_indices) {
+  const auto n_v = J_ad.cols();
+  const auto n_q = J_ad(0, 0).derivatives().size();
+  const auto n_lambda_active = lambda_star_active_indices.size();
+
+  vector<MatrixXd> DGactiveDq;
+  for (int i_q = 0; i_q < n_q; i_q++) {
+    DGactiveDq.emplace_back(n_lambda_active, n_v);
+    for (int i = 0; i < n_lambda_active; i++) {
+      for (int j = 0; j < n_v; j++) {
+        DGactiveDq[i_q](i, j) =
+            J_ad(lambda_star_active_indices[i], j).derivatives()[i_q];
+      }
+    }
+  }
+  return DGactiveDq;
+}
+
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe, const double h,
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+    const ModelInstanceIndexToVecMap &q_dict, const double h,
     const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_d) const {
   const auto n_c = Jn.rows();
   const auto n_f = n_c * n_d;
 
   /*----------------------------------------------------------------*/
+  // TODO: consider only active constraints.
   MatrixXd Dphi_constraints_Dq(n_f, n_v_);
   int i_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -820,8 +903,43 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   }
 
   /*----------------------------------------------------------------*/
-  const MatrixXd Dv_nextDq =
-      Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+  MatrixXd Dv_nextDq = Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+
+  /*----------------------------------------------------------------*/
+  // Compute Dv_nextDvecG from the KKT conditions of the QP.
+  const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
+      dqp_->get_DzDvecG_active();
+
+  if (not lambda_star_active_indices.empty()) {
+    // This is skipped if there is no contact.
+    // Compute DvecGDq using Autodiff through MBP.
+    const auto q = GetQVecFromDict(q_dict);
+    const auto q_ad = InitializeAutoDiff(q);
+    UpdateMbpAdPositions(q_ad);
+    const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
+    MatrixX<AutoDiffXd> Jn_ad, J_ad;
+    VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
+    cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps, n_d, &phi_ad,
+                                  &phi_constraints_ad, &Jn_ad, &J_ad);
+
+    const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
+
+    const auto n_lambda_active = lambda_star_active_indices.size();
+    for (int i_v = 0; i_v < n_v_; i_v++) {
+      MatrixXd Dv_next_i_vDGactive(n_lambda_active, n_q_);
+      for (int i = 0; i < n_lambda_active; i++) {
+        for (int j = 0; j < n_q_; j++) {
+          Dv_next_i_vDGactive(i, j) =
+              Dv_nextDvecG_active(i_v, n_lambda_active * j + i);
+        }
+      }
+      for (int i_q = 0; i_q < n_q_; i_q++) {
+        Dv_nextDq(i_v, i_q) +=
+            (Dv_next_i_vDGactive.array() * DGactiveDq[i_q].array()).sum();
+      }
+    }
+  }
+
   return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
 }
 
@@ -869,7 +987,7 @@ QuasistaticSimulator::GetModelInstanceNameToIndexMap() const {
 }
 
 Eigen::Matrix<double, 4, 3>
-QuasistaticSimulator::GetE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
+QuasistaticSimulator::CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   Eigen::Matrix<double, 4, 3> E;
   E.row(0) << -Q[1], -Q[2], -Q[3];
   E.row(1) << Q[0], Q[3], -Q[2];
@@ -877,6 +995,31 @@ QuasistaticSimulator::GetE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   E.row(3) << Q[2], -Q[1], Q[0];
   E *= 0.5;
   return E;
+}
+
+std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
+QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs() const {
+  std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>> sdps_ad;
+  for (const auto &collision_pair : collision_pairs_) {
+    sdps_ad.push_back(query_object_ad_->ComputeSignedDistancePairClosestPoints(
+        collision_pair.first, collision_pair.second));
+  }
+  return sdps_ad;
+}
+
+std::vector<drake::geometry::SignedDistancePair<double>>
+QuasistaticSimulator::CalcCollisionPairs(
+    double contact_detection_tolerance) const {
+  auto sdps = query_object_->ComputeSignedDistancePairwiseClosestPoints(
+      contact_detection_tolerance);
+  collision_pairs_.clear();
+
+  // Save collision pairs, which may later be used in gradient computation by
+  // the AutoDiff MBP.
+  for (const auto &sdp : sdps) {
+    collision_pairs_.emplace_back(sdp.id_A, sdp.id_B);
+  }
+  return sdps;
 }
 
 ModelInstanceIndexToMatrixMap
@@ -940,7 +1083,7 @@ void QuasistaticSimulator::UpdateQdictFromV(
 
       VectorXd dq_u(7);
       const auto &v_u = v_dict.at(model);
-      dq_u.head(4) = GetE(Q) * v_u.head(3) * h;
+      dq_u.head(4) = CalcE(Q) * v_u.head(3) * h;
       dq_u.tail(3) = v_u.tail(3) * h;
 
       dq_dict[model] = dq_u;
