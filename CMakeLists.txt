@@ -69,6 +69,7 @@ get_filename_component(PYTHONPATH
 
 # my packages.
 find_package(spdlog REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 17)

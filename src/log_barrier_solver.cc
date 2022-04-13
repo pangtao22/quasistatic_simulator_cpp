@@ -164,7 +164,7 @@ void LogBarrierSolver::Solve(const Eigen::Ref<const Eigen::MatrixXd> &Q,
   try {
     SolveOneNewtonStep(Q, b, G, e, kappa_max, &v);
   } catch (std::runtime_error &exception) {
-    SolveGradientDescent(Q, b, G, e, kappa_max, &v);
+    SolveMultipleNewtonSteps(Q, b, G, e, kappa_max, &v);
   }
 
   *v_star_ptr = v;

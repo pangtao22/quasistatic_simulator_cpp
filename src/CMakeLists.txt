@@ -31,6 +31,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 add_library(get_model_paths get_model_paths.h get_model_paths.cc)
+target_link_libraries(get_model_paths drake::drake)
 
 add_library(qp_derivatives qp_derivatives.h qp_derivatives.cc)
 target_link_libraries(qp_derivatives drake::drake)
@@ -47,9 +48,16 @@ add_library(quasistatic_simulator quasistatic_simulator.h
 target_link_libraries(quasistatic_simulator qp_derivatives drake::drake
         get_model_paths contact_computer log_barrier_solver)
 
+add_library(quasistatic_parser quasistatic_parser.h quasistatic_parser.cc)
+target_link_libraries(quasistatic_parser quasistatic_simulator yaml-cpp)
+
 add_library(batch_quasistatic_simulator batch_quasistatic_simulator.h
         batch_quasistatic_simulator.cc)
 target_link_libraries(batch_quasistatic_simulator quasistatic_simulator)
+
+pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
+target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
+        batch_quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
 target_link_libraries(run_planar_hand_ball quasistatic_simulator gtest)
@@ -61,9 +69,8 @@ target_link_libraries(run_3link_arm_3d quasistatic_simulator
 add_executable(run_iiwa_box_stacking run_iiwa_box_stacking.cc)
 target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
 
-pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
-target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
-        batch_quasistatic_simulator)
+add_executable(run_allegro_hand run_allegro_hand.cc)
+target_link_libraries(run_allegro_hand quasistatic_parser)
 
 add_executable(test_batch_simulator test_batch_simulator.cc)
 target_link_libraries(test_batch_simulator batch_quasistatic_simulator gtest)

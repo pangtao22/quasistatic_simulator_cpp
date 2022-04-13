@@ -102,12 +102,13 @@ struct QuasistaticSimParameters {
   size_t nd_per_contact{0};
   double contact_detection_tolerance{NAN};
   bool is_quasi_dynamic{true};
-  ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
-  GradientMode gradient_mode{GradientMode::kNone};
   double log_barrier_weight{NAN};
   double unactuated_mass_scale{NAN};
   // -------------------------- CPP only --------------------------
   double gradient_lstsq_tolerance{2e-2};
+  // -------------------------- Not Set in YAML -------------------------
+  ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
+  GradientMode gradient_mode{GradientMode::kNone};
 };
 
 static char const *const kMultiBodyPlantName = "MultiBodyPlant";

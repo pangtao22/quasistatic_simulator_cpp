@@ -3,6 +3,7 @@
 #include <pybind11/stl.h>
 
 #include "batch_quasistatic_simulator.h"
+#include "contact_jacobian_calculator.h"
 #include "log_barrier_solver.h"
 #include "qp_derivatives.h"
 #include "quasistatic_simulator.h"
