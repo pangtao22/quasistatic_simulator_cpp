@@ -3,12 +3,18 @@
 
 #include <Eigen/Dense>
 
+#include "batch_quasistatic_simulator.h"
 #include "quasistatic_simulator.h"
 
 class QuasistaticParser {
 public:
   explicit QuasistaticParser(const std::string &q_model_path);
+  void update_sim_params(QuasistaticSimParameters sim_params) {
+    sim_params_ = std::move(sim_params);
+  };
   [[nodiscard]] std::unique_ptr<QuasistaticSimulator> MakeSimulator() const;
+  [[nodiscard]] std::unique_ptr<BatchQuasistaticSimulator>
+  MakeBatchSimulator() const;
 
 private:
   std::string model_directive_path_;

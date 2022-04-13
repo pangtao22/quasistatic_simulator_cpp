@@ -79,3 +79,9 @@ std::unique_ptr<QuasistaticSimulator> QuasistaticParser::MakeSimulator() const {
   return std::make_unique<QuasistaticSimulator>(
       model_directive_path_, robot_stiffness_, object_sdf_paths_, sim_params_);
 }
+
+[[nodiscard]] std::unique_ptr<BatchQuasistaticSimulator>
+QuasistaticParser::MakeBatchSimulator() const {
+  return std::make_unique<BatchQuasistaticSimulator>(
+      model_directive_path_, robot_stiffness_, object_sdf_paths_, sim_params_);
+}

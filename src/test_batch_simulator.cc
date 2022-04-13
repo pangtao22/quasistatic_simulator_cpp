@@ -4,7 +4,7 @@
 
 #include <gtest/gtest.h>
 
-#include "batch_quasistatic_simulator.h"
+#include "quasistatic_parser.h"
 #include "get_model_paths.h"
 
 using drake::multibody::ModelInstanceIndex;
@@ -31,10 +31,9 @@ protected:
 
   // TODO: simplify these setup functions with QuasistaticParser.
   void SetUpPlanarHand() {
-    const string kObjectSdfPath =
-        GetQsimModelsPath() / "sphere_yz_rotation_r_0.25m.sdf";
-
-    const string kModelDirectivePath = GetQsimModelsPath() / "planar_hand.yml";
+    const string kQModelPath =
+        GetQsimModelsPath() / "q_sys" / "planar_hand_ball.yml";
+    auto parser = QuasistaticParser(kQModelPath);
 
     sim_params_.h = h_;
     sim_params_.gravity = Vector3d(0, 0, -10);
@@ -42,20 +41,12 @@ protected:
     sim_params_.contact_detection_tolerance = 1.0;
     sim_params_.is_quasi_dynamic = true;
 
-    VectorXd Kp(2);
-    Kp << 50, 25;
+    parser.update_sim_params(sim_params_);
+    q_sim_batch_ = parser.MakeBatchSimulator();
+
     const string robot_l_name = "arm_left";
     const string robot_r_name = "arm_right";
-
-    std::unordered_map<string, VectorXd> robot_stiffness_dict = {
-        {robot_l_name, Kp}, {robot_r_name, Kp}};
-
     const string object_name("sphere");
-    std::unordered_map<string, string> object_sdf_dict = {
-        {object_name, kObjectSdfPath}};
-
-    q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
-        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params_);
 
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
@@ -75,32 +66,22 @@ protected:
   }
 
   void SetUpAllegroHand() {
-    const string kObjectSdfPath = GetQsimModelsPath() / "sphere_r0.06m.sdf";
-    const string kModelDirectivePath = GetQsimModelsPath() / "allegro_hand.yml";
-
+    const string kQModelPath =
+        GetQsimModelsPath() / "q_sys" / "allegro_hand_and_sphere.yml";
+    auto parser = QuasistaticParser(kQModelPath);
     sim_params_.h = h_;
     sim_params_.gravity = Vector3d(0, 0, 0);
     sim_params_.nd_per_contact = 4;
     sim_params_.contact_detection_tolerance = 0.025;
     sim_params_.is_quasi_dynamic = true;
     sim_params_.log_barrier_weight = 100;
-
-    constexpr int n_qa = 16;
-    VectorXd Kp = VectorXd::Ones(n_qa) * 100;
-    const string robot_name("allegro_hand_right");
-
-    std::unordered_map<string, VectorXd> robot_stiffness_dict = {
-        {robot_name, Kp}};
-
-    const string object_name("sphere");
-    std::unordered_map<string, string> object_sdf_dict = {
-        {object_name, kObjectSdfPath}};
-
-    q_sim_batch_ = std::make_unique<BatchQuasistaticSimulator>(
-        kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params_);
+    parser.update_sim_params(sim_params_);
+    q_sim_batch_ = parser.MakeBatchSimulator();
 
     auto &q_sim = q_sim_batch_->get_q_sim();
     const auto name_to_idx_map = q_sim.GetModelInstanceNameToIndexMap();
+    const string robot_name("allegro_hand_right");
+    const string object_name("sphere");
     const auto idx_r = name_to_idx_map.at(robot_name);
     const auto idx_o = name_to_idx_map.at(object_name);
 
@@ -108,7 +89,7 @@ protected:
     q_u0 << 0.96040786, 0.07943188, 0.26694634, 0.00685272, -0.08083068,
         0.00117524, 0.0711;
 
-    VectorXd q_a0(n_qa);
+    VectorXd q_a0(q_sim.num_actuated_dofs());
     q_a0 << 0.03501504, 0.75276565, 0.74146232, 0.83261002, 0.63256269,
         1.02378254, 0.64089555, 0.82444782, -0.1438725, 0.74696812, 0.61908827,
         0.70064279, -0.06922541, 0.78533142, 0.82942863, 0.90415436;
