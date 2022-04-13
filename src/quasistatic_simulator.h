@@ -83,6 +83,10 @@ public:
     return sim_params_;
   }
 
+  [[nodiscard]] QuasistaticSimParameters &get_mutable_sim_params() {
+    return sim_params_;
+  }
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };

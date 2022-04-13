@@ -43,7 +43,7 @@ QuasistaticParser::QuasistaticParser(const std::string &q_model_path) {
   if (config["objects"]) {
     for (const auto obj : config["objects"]) {
       auto name = obj["name"].as<std::string>();
-      auto path = ParsePath(obj["file"].as<std::string>());
+      object_sdf_paths_[name] = ParsePath(obj["file"].as<std::string>());
     }
   }
 
