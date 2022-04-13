@@ -130,8 +130,8 @@ TEST_F(TestLogBarrierSolvers, TestGradientDescent) {
   solver_pyramid.SolveGradientDescent(
       Q_, -tau_h_, -J_pyramid_, phi_pyramid_ / h_, kappa_, &v_star_pyramid);
   solver_icecream.SolveGradientDescent(Q_, -tau_h_, -J_icecream_,
-                                           phi_icecream_ / mu_ / h_, kappa_,
-                                           &v_star_icecream);
+                                       phi_icecream_ / mu_ / h_, kappa_,
+                                       &v_star_icecream);
   EXPECT_LT((v_star_pyramid - v_star_icecream).norm(), 1e-5);
 }
 
