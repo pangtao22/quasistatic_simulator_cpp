@@ -52,10 +52,6 @@ void CreateMbp(
                                "/manipulation/models");
   parser.package_map().Add("iiwa_controller", GetRoboticsUtilitiesModelsPath());
 
-  drake::multibody::parsing::ProcessModelDirectives(
-      drake::multibody::parsing::LoadModelDirectives(model_directive_path),
-      *plant, nullptr, &parser);
-
   // Objects.
   // Use a Set to sort object names.
   std::set<std::string> object_names;
@@ -68,6 +64,9 @@ void CreateMbp(
   }
 
   // Robots.
+  drake::multibody::parsing::ProcessModelDirectives(
+      drake::multibody::parsing::LoadModelDirectives(model_directive_path),
+      *plant, nullptr, &parser);
   for (const auto &[name, Kp] : robot_stiffness_str) {
     auto robot_model = (*plant)->GetModelInstanceByName(name);
 
