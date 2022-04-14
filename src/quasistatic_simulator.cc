@@ -429,8 +429,6 @@ void QuasistaticSimulator::ForwardQp(
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
     Eigen::VectorXd *beta_star_ptr) {
   auto &q_dict = *q_dict_ptr;
-  VectorXd &v_star = *v_star_ptr;
-  VectorXd &beta_star = *beta_star_ptr;
   const auto n_f = phi_constraints.size();
   const auto h = params.h;
 
@@ -449,11 +447,15 @@ void QuasistaticSimulator::ForwardQp(
     throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
   }
 
-  v_star = mp_result_.GetSolution(v);
-  beta_star = -mp_result_.GetDualSolution(constraints);
+  *v_star_ptr = mp_result_.GetSolution(v);
+  if (constraints.evaluator()->num_constraints() > 0) {
+    *beta_star_ptr = -mp_result_.GetDualSolution(constraints);
+  } else {
+    *beta_star_ptr = Eigen::VectorXd(0);
+  }
 
   // Update q_dict.
-  UpdateQdictFromV(v_star, params, &q_dict);
+  UpdateQdictFromV(*v_star_ptr, params, &q_dict);
 
   // Update context_plant_ using the new q_dict.
   UpdateMbpPositions(q_dict);

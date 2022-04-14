@@ -77,9 +77,5 @@ int main() {
     cout << "Dq_nextDqa_cmd\n" << q_sim.get_Dq_nextDqa_cmd() << endl;
   }
 
-  //  for(const auto& [model, q_i] : q_next_dict) {
-  //    cout << model << " " << q_i.transpose() << endl;
-  //  }
-
   return 0;
 }
