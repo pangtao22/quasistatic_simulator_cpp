@@ -21,7 +21,7 @@ ${HOME}/PycharmProjects/robotics_utilities
 ## Eigen 3.4
 Eigen 3.4 supports useful syntax such as slicing, so we'd like to use it. However, drake by default uses the Eigen bundled with the OS. Mac's default Eigen is 3.4, so there is nothing we need to do. On ubuntu 20.04, however, the system's default Eigen is 3.3.*, which means we need to ask drake to use a different, user-installed Eigen.
 
-To build drake with a use-installed Eigen, one needs to turn on `WITH_USER_EIGEN` when building drake, and set `Eigen3_DIR` to the folder of the user-installed Eigen containing cmake config files. If one installs the Eigen downloaded from Eigen's official website using the default options, `Eigen3_DIR` should be `/usr/local/share/eigen3/cmake`. In contrast, the system's Eigen can be found at `/usr/lib/cmake/eigen3` instead.
+To build drake with a use-installed Eigen, one needs to turn on `WITH_USER_EIGEN` when building drake, and set `Eigen3_DIR` to the folder containing cmake config files of the user-installed Eigen. If Eigen is installed using the default options with the .tar ball downloaded from Eigen's official website, `Eigen3_DIR` should be `/usr/local/share/eigen3/cmake`. In contrast, the system's Eigen can be found at `/usr/lib/cmake/eigen3` instead.
 
 To build this project with the user installed Eigen, add this flag when running cmake:
 ```
