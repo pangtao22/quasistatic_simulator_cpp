@@ -309,10 +309,8 @@ void SocpLogBarrierSolver::CalcGradientAndHessian(
   const int n_v = G.cols();
 
   // Hessian of generalized log w.r.t. w.
+  static const Eigen::Matrix3d A{{-1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
   Eigen::Matrix3d D2w;
-  Eigen::Matrix3d A;
-  A.setIdentity();
-  A(0, 0) = -1;
   Eigen::Vector3d w_bar;
 
   for (int i = 0; i < n_c; i++) {

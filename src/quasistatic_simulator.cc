@@ -319,6 +319,22 @@ void QuasistaticSimulator::CalcQAndTauH(
   }
 }
 
+void AddPointPairContactInfoFromForce(
+    const ContactPairInfo<double> &cpi,
+    const Eigen::Ref<const Vector3d> &f_Bc_W,
+    drake::multibody::ContactResults<double> *contact_results) {
+  drake::geometry::PenetrationAsPointPair<double> papp;
+  papp.id_A = cpi.id_A;
+  papp.id_B = cpi.id_B;
+  papp.p_WCa = cpi.p_WCa;
+  papp.p_WCb = cpi.p_WCb;
+  papp.nhat_BA_W = cpi.nhat_BA_W;
+  Vector3d p_WC = (papp.p_WCa + papp.p_WCb) / 2;
+  contact_results->AddContactInfo(
+      drake::multibody::PointPairContactInfo<double>(
+          cpi.body_A_idx, cpi.body_B_idx, f_Bc_W, p_WC, 0, 0, papp));
+}
+
 void QuasistaticSimulator::CalcContactResultsQp(
     const std::vector<ContactPairInfo<double>> &contact_info_list,
     const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
@@ -341,18 +357,27 @@ void QuasistaticSimulator::CalcContactResultsQp(
     f_Ac_W /= h;
 
     // Assemble Contact info.
-    drake::geometry::PenetrationAsPointPair<double> papp;
-    papp.id_A = cpi.id_A;
-    papp.id_B = cpi.id_B;
-    papp.p_WCa = cpi.p_WCa;
-    papp.p_WCb = cpi.p_WCb;
-    papp.nhat_BA_W = cpi.nhat_BA_W;
-    Vector3d p_WC = (papp.p_WCa + papp.p_WCb) / 2;
-    contact_results->AddContactInfo(
-        drake::multibody::PointPairContactInfo<double>(
-            cpi.body_A_idx, cpi.body_B_idx, -f_Ac_W, p_WC, 0, 0, papp));
+    AddPointPairContactInfoFromForce(cpi, -f_Ac_W, contact_results);
 
     i_beta += n_d;
+  }
+}
+
+static void CalcContactResultsSocp(
+    const std::vector<ContactPairInfo<double>> &contact_info_list,
+    const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+    const double h,
+    drake::multibody::ContactResults<double> *contact_results) {
+  const auto n_c = contact_info_list.size();
+  contact_results->Clear();
+
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    const auto &cpi = contact_info_list[i_c];
+
+    // Compute contact force.
+    Vector3d f_Ac_W;
+    f_Ac_W.setZero();
+
   }
 }
 

@@ -215,6 +215,12 @@ private:
       const double h,
       drake::multibody::ContactResults<double> *contact_results);
 
+  static void CalcContactResultsSocp(
+      const std::vector<ContactPairInfo<double>> &contact_info_list,
+      const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+      const double h,
+      drake::multibody::ContactResults<double> *contact_results);
+
   void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                  const Eigen::Ref<const Eigen::VectorXd> &tau_h,
                  const Eigen::Ref<const Eigen::MatrixXd> &J,
