@@ -337,21 +337,22 @@ void QuasistaticSimulator::CalcContactResultsQp(
     for (int i = 0; i < n_d; i++) {
       f_Ac_W +=
           (cpi.nhat_BA_W + cpi.mu * cpi.t_W.col(i)) * beta_star[i_beta + i];
-      f_Ac_W /= h;
     }
+    f_Ac_W /= h;
 
-    // Compute Contact info.
+    // Assemble Contact info.
     drake::geometry::PenetrationAsPointPair<double> papp;
+    papp.id_A = cpi.id_A;
+    papp.id_B = cpi.id_B;
     papp.p_WCa = cpi.p_WCa;
     papp.p_WCb = cpi.p_WCb;
     papp.nhat_BA_W = cpi.nhat_BA_W;
-
     Vector3d p_WC = (papp.p_WCa + papp.p_WCb) / 2;
     contact_results->AddContactInfo(
         drake::multibody::PointPairContactInfo<double>(
             cpi.body_A_idx, cpi.body_B_idx, -f_Ac_W, p_WC, 0, 0, papp));
 
-    i_beta += i_c * n_d;
+    i_beta += n_d;
   }
 }
 

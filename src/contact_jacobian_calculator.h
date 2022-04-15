@@ -9,10 +9,6 @@
 template <class T> struct ContactPairInfo {
   // Contact normal pointing to body A from body B.
   drake::Vector3<T> nhat_BA_W;
-  drake::Vector3<T> p_WCa;
-  drake::Vector3<T> p_WCb;
-  drake::multibody::BodyIndex body_A_idx;
-  drake::multibody::BodyIndex body_B_idx;
 
   // Tangents which are perpendicular to nhat_BA_W. Each column of the matrix
   // is a tangent vector. For QP dynamics, there are n_d tangent vectors; for
@@ -22,6 +18,14 @@ template <class T> struct ContactPairInfo {
   // The (3, n_v) contact Jacobian defined in the docs.
   drake::Matrix3X<T> Jc;
   double mu{0}; // coefficient of friction.
+
+  // For contact force visualization.
+  drake::Vector3<T> p_WCa;
+  drake::Vector3<T> p_WCb;
+  drake::multibody::BodyIndex body_A_idx;
+  drake::multibody::BodyIndex body_B_idx;
+  drake::geometry::GeometryId id_A;
+  drake::geometry::GeometryId id_B;
 };
 
 template <class T> class ContactJacobianCalculator {

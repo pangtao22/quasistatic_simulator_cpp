@@ -128,6 +128,8 @@ void ContactJacobianCalculator<T>::UpdateContactPairInfo(
     cpi.p_WCb = X_WB * p_BCb_B;
     cpi.body_A_idx = bodyA_idx;
     cpi.body_B_idx = bodyB_idx;
+    cpi.id_A = sdp.id_A;
+    cpi.id_B = sdp.id_B;
   }
 }
 
