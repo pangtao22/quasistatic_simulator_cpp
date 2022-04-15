@@ -67,14 +67,14 @@ is_quasi_dynamic: bool. If True, dynamics of unactauted objects is
 
 mode:
 Note that C++ does not support modes using CVX.
-                 | Friction Cone | Force Field | Parser |
-kQpMp            | Pyramid       | No          | MP     |
-kQpCvx           | Pyramid       | No          | CVXPY  |
-kSocpMp          | Icecream      | No          | MP     |
-kLogPyramidMp    | Pyramid       | Yes         | MP     |
-kLogPyramidCvx   | Pyramid       | Yes         | CVXPY  |
-kLogIcecreamMp   | Icecream      | Yes         | MP     |
-kLogIcecreamCvx  | Icecream      | Yes         | CVXPY  |
+                 | Friction Cone | Force Field | Parser   |
+kQpMp            | Pyramid       | No          | MP       |
+kQpCvx           | Pyramid       | No          | CVXPY    |
+kSocpMp          | Icecream      | No          | MP       |
+kLogPyramidMp    | Pyramid       | Yes         | MP       |
+kLogPyramidMy    | Pyramid       | Yes         | in-house |
+kLogPyramidCvx   | Pyramid       | Yes         | CVXPY    |
+kLogIcecream     | Icecream      | Yes         | in-house |
 
 log_barrier_weight: float, used only in log-barrier modes.
 
@@ -99,16 +99,21 @@ gradient_lstsq_tolerance: float
 struct QuasistaticSimParameters {
   double h{NAN};
   Eigen::Vector3d gravity{0, 0, 0};
-  size_t nd_per_contact{0};
   double contact_detection_tolerance{NAN};
   bool is_quasi_dynamic{true};
   double log_barrier_weight{NAN};
   double unactuated_mass_scale{NAN};
+  /*
+   * Some computation can be saved by setting this to false.
+   */
+  bool calc_contact_forces{true};
   // -------------------------- CPP only --------------------------
   double gradient_lstsq_tolerance{2e-2};
   // -------------------------- Not Set in YAML -------------------------
   ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
   GradientMode gradient_mode{GradientMode::kNone};
+  // ---------------------- pyramid cones only ---------------------------
+  size_t nd_per_contact{0};
 };
 
 static char const *const kMultiBodyPlantName = "MultiBodyPlant";
