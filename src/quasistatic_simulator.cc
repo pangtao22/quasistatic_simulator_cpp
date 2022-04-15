@@ -890,10 +890,10 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
  * Arranges DGactiveDq[i] into a (n_lambda_active, n_v) matrix.
  */
 std::vector<MatrixXd>
-CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &J_ad,
+CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &G_ad,
                const std::vector<int> &lambda_star_active_indices) {
-  const auto n_v = J_ad.cols();
-  const auto n_q = J_ad(0, 0).derivatives().size();
+  const auto n_v = G_ad.cols();
+  const auto n_q = G_ad(0, 0).derivatives().size();
   const auto n_lambda_active = lambda_star_active_indices.size();
 
   vector<MatrixXd> DGactiveDq;
@@ -902,7 +902,7 @@ CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &J_ad,
     for (int i = 0; i < n_lambda_active; i++) {
       for (int j = 0; j < n_v; j++) {
         DGactiveDq[i_q](i, j) =
-            J_ad(lambda_star_active_indices[i], j).derivatives()[i_q];
+            G_ad(lambda_star_active_indices[i], j).derivatives()[i_q];
       }
     }
   }
@@ -965,7 +965,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps, n_d, &phi_ad,
                                   &phi_constraints_ad, &Jn_ad, &J_ad);
 
-    const auto DGactiveDq = CalcDGactiveDq(J_ad, lambda_star_active_indices);
+    const auto DGactiveDq = CalcDGactiveDq(-J_ad, lambda_star_active_indices);
 
     const auto n_lambda_active = lambda_star_active_indices.size();
     for (int i_v = 0; i_v < n_v_; i_v++) {
