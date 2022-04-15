@@ -323,7 +323,7 @@ void QuasistaticSimulator::CalcContactResultsQp(
     const std::vector<ContactPairInfo<double>> &contact_info_list,
     const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
     const double h,
-    drake::multibody::ContactResults<double> *contact_results) const {
+    drake::multibody::ContactResults<double> *contact_results) {
   const auto n_c = contact_info_list.size();
   DRAKE_ASSERT(beta_star.size() == n_c * n_d);
   contact_results->Clear();

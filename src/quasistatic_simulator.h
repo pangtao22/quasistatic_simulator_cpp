@@ -209,11 +209,11 @@ private:
                             std::vector<Eigen::Matrix3Xd> *J_list,
                             Eigen::VectorXd *phi) const;
 
-  void CalcContactResultsQp(
+  static void CalcContactResultsQp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
       const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
       const double h,
-      drake::multibody::ContactResults<double> *contact_results) const;
+      drake::multibody::ContactResults<double> *contact_results);
 
   void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                  const Eigen::Ref<const Eigen::VectorXd> &tau_h,
