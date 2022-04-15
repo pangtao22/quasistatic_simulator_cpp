@@ -9,6 +9,15 @@
 template <class T> struct ContactPairInfo {
   // Contact normal pointing to body A from body B.
   drake::Vector3<T> nhat_BA_W;
+  drake::Vector3<T> p_WCa;
+  drake::Vector3<T> p_WCb;
+  drake::multibody::BodyIndex body_A_idx;
+  drake::multibody::BodyIndex body_B_idx;
+
+  // Tangents which are perpendicular to nhat_BA_W. Each column of the matrix
+  // is a tangent vector. For QP dynamics, there are n_d tangent vectors; for
+  // SOCP, there are two.
+  drake::Matrix3X<T> t_W;
 
   // The (3, n_v) contact Jacobian defined in the docs.
   drake::Matrix3X<T> Jc;
@@ -36,6 +45,11 @@ public:
     return contact_pairs_[i_c].mu;
   }
 
+  const std::vector<ContactPairInfo<T>> &
+  get_contact_pair_info_list() const {
+    return contact_pairs_;
+  }
+
   void CalcJacobianAndPhiQp(
       const drake::systems::Context<T> *context_plant,
       const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
@@ -46,8 +60,8 @@ public:
   void CalcJacobianAndPhiSocp(
       const drake::systems::Context<T> *context_plant,
       const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
-      drake::VectorX<T> *phi_ptr, std::vector<drake::Matrix3X<T>> *J_list_ptr)
-      const;
+      drake::VectorX<T> *phi_ptr,
+      std::vector<drake::Matrix3X<T>> *J_list_ptr) const;
 
 private:
   double GetFrictionCoefficientForSignedDistancePair(
@@ -66,10 +80,10 @@ private:
    *
    * Jc_ptr must have shape (3, n_v).
    */
-  drake::Matrix3X<T> CalcContactJaocibanFromPoint(
-      const drake::systems::Context<T> *context_plant,
-      const drake::multibody::BodyIndex &body_idx,
-      const drake::VectorX<T> &pC_Body) const;
+  drake::Matrix3X<T>
+  CalcContactJaocibanFromPoint(const drake::systems::Context<T> *context_plant,
+                               const drake::multibody::BodyIndex &body_idx,
+                               const drake::VectorX<T> &pC_Body) const;
 
   const drake::multibody::MultibodyPlant<T> *plant_{nullptr};
   const drake::geometry::SceneGraph<T> *sg_{nullptr};

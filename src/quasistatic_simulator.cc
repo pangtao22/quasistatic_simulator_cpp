@@ -319,6 +319,42 @@ void QuasistaticSimulator::CalcQAndTauH(
   }
 }
 
+void QuasistaticSimulator::CalcContactResultsQp(
+    const std::vector<ContactPairInfo<double>> &contact_info_list,
+    const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
+    const double h,
+    drake::multibody::ContactResults<double> *contact_results) const {
+  const auto n_c = contact_info_list.size();
+  DRAKE_ASSERT(beta_star.size() == n_c * n_d);
+  contact_results->Clear();
+  int i_beta = 0;
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    const auto &cpi = contact_info_list[i_c];
+
+    // Compute contact force.
+    Vector3d f_Ac_W;
+    f_Ac_W.setZero();
+    for (int i = 0; i < n_d; i++) {
+      f_Ac_W +=
+          (cpi.nhat_BA_W + cpi.mu * cpi.t_W.col(i)) * beta_star[i_beta + i];
+      f_Ac_W /= h;
+    }
+
+    // Compute Contact info.
+    drake::geometry::PenetrationAsPointPair<double> papp;
+    papp.p_WCa = cpi.p_WCa;
+    papp.p_WCb = cpi.p_WCb;
+    papp.nhat_BA_W = cpi.nhat_BA_W;
+
+    Vector3d p_WC = (papp.p_WCa + papp.p_WCb) / 2;
+    contact_results->AddContactInfo(
+        drake::multibody::PointPairContactInfo<double>(
+            cpi.body_A_idx, cpi.body_B_idx, -f_Ac_W, p_WC, 0, 0, papp));
+
+    i_beta += i_c * n_d;
+  }
+}
+
 void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const ModelInstanceIndexToVecMap &tau_ext_dict,
                                 const QuasistaticSimParameters &params) {
@@ -331,13 +367,19 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     MatrixXd Q, Jn, J;
     VectorXd tau_h, phi, phi_constraints;
     // Primal and dual solutions.
-    VectorXd v_star, beta_star;
+    VectorXd v_star;
     CalcPyramidMatrices(q_dict, q_a_cmd_dict, tau_ext_dict, params, &Q, &tau_h,
                         &Jn, &J, &phi, &phi_constraints);
 
     if (fm == ForwardDynamicsMode::kQpMp) {
+      VectorXd beta_star;
       ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
                 &beta_star);
+
+      CalcContactResultsQp(
+          cjc_->get_contact_pair_info_list(),
+          beta_star, params.nd_per_contact, params.h, &contact_results_);
+
       BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
                  beta_star, params);
       return;
@@ -578,7 +620,6 @@ void QuasistaticSimulator::ForwardLogIcecream(
   auto &q_dict = *q_dict_ptr;
 
   const auto h = params.h;
-
   const auto n_c = J_list.size();
   const auto n_v = Q.rows();
 

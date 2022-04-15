@@ -117,6 +117,17 @@ void ContactJacobianCalculator<T>::UpdateContactPairInfo(
             CalcContactJaocibanFromPoint(context_plant, bodyB_idx, p_BCb_B);
       }
     }
+
+    // This is needed only for computing the contact point, which is now only
+    // used for visualization.
+    auto X_WA = plant_->EvalBodyPoseInWorld(*context_plant,
+                                            plant_->get_body(bodyA_idx));
+    auto X_WB = plant_->EvalBodyPoseInWorld(*context_plant,
+                                            plant_->get_body(bodyB_idx));
+    cpi.p_WCa = X_WA * p_ACa_A;
+    cpi.p_WCb = X_WB * p_BCb_B;
+    cpi.body_A_idx = bodyA_idx;
+    cpi.body_B_idx = bodyB_idx;
   }
 }
 
@@ -191,7 +202,8 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     phi[i_c] = sdp.distance;
     Jn.row(i_c) = sdp.nhat_BA_W.transpose() * cpi.Jc;
 
-    const auto d_W = CalcTangentVectors<T>(sdp.nhat_BA_W, n_d);
+    contact_pairs_[i_c].t_W = CalcTangentVectors<T>(sdp.nhat_BA_W, n_d);
+    const auto &d_W = contact_pairs_[i_c].t_W;
     for (int j = 0; j < n_d; j++) {
       int idx = j_start + j;
       J.row(idx) = Jn.row(i_c) + mu * d_W.col(j).transpose() * cpi.Jc;
@@ -201,6 +213,7 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     j_start += n_d;
   }
 }
+
 template <class T>
 void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
     const drake::systems::Context<T> *context_plant,
@@ -224,13 +237,16 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
 
     phi[i_c] = sdp.distance;
 
-    Matrix3X<T>& J_i = J_list[i_c];
+    Matrix3X<T> &J_i = J_list[i_c];
     J_i.resize(3, n_v);
     const drake::Matrix3<T> R =
         drake::math::RotationMatrix<T>::MakeFromOneUnitVector(sdp.nhat_BA_W, 2)
             .matrix();
-    const Vector3<T>& t1 = R.col(0);
-    const Vector3<T>& t2 = R.col(1);
+    const Vector3<T> &t1 = R.col(0);
+    const Vector3<T> &t2 = R.col(1);
+    contact_pairs_[i_c].t_W.resize(3, 2);
+    contact_pairs_[i_c].t_W.col(0) = t1;
+    contact_pairs_[i_c].t_W.col(1) = t2;
 
     J_i.row(0) = sdp.nhat_BA_W.transpose() * cpi.Jc / mu;
     J_i.row(1) = t1.transpose() * cpi.Jc;
