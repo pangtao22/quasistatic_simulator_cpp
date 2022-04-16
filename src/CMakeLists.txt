@@ -78,5 +78,9 @@ target_link_libraries(test_batch_simulator quasistatic_parser gtest)
 add_executable(test_log_barrier_solver test_log_barrier_solver.cc)
 target_link_libraries(test_log_barrier_solver log_barrier_solver gtest)
 
+add_executable(test_contact_forces test_contact_forces.cc)
+target_link_libraries(test_contact_forces quasistatic_parser gtest)
+
 add_test(NAME test_batch_simulator COMMAND test_batch_simulator)
 add_test(NAME test_log_barrier_solver COMMAND test_log_barrier_solver)
+add_test(NAME test_contact_forces COMMAND test_contact_forces)

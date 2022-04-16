@@ -1,7 +1,6 @@
 #include <cmath>
 #include <iostream>
 #include <spdlog/spdlog.h>
-#include <sstream>
 #include <unsupported/Eigen/KroneckerProduct>
 
 #include "qp_derivatives.h"

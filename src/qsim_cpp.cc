@@ -31,16 +31,17 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def(py::init<>())
         .def_readwrite("h", &Class::h)
         .def_readwrite("gravity", &Class::gravity)
-        .def_readwrite("nd_per_contact", &Class::nd_per_contact)
         .def_readwrite("contact_detection_tolerance",
                        &Class::contact_detection_tolerance)
         .def_readwrite("is_quasi_dynamic", &Class::is_quasi_dynamic)
-        .def_readwrite("forward_mode", &Class::forward_mode)
-        .def_readwrite("gradient_mode", &Class::gradient_mode)
         .def_readwrite("log_barrier_weight", &Class::log_barrier_weight)
         .def_readwrite("unactuated_mass_scale", &Class::unactuated_mass_scale)
+        .def_readwrite("calc_contact_forces", &Class::calc_contact_forces)
+        .def_readwrite("forward_mode", &Class::forward_mode)
+        .def_readwrite("gradient_mode", &Class::gradient_mode)
         .def_readwrite("gradient_lstsq_tolerance",
                        &Class::gradient_lstsq_tolerance)
+        .def_readwrite("nd_per_contact", &Class::nd_per_contact)
         .def("__copy__", [](const Class &self) { return Class(self); })
         .def(
             "__deepcopy__",

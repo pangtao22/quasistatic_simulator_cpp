@@ -44,8 +44,8 @@ protected:
     parser.update_sim_params(sim_params_);
     q_sim_batch_ = parser.MakeBatchSimulator();
 
-    const string robot_l_name = "arm_left";
-    const string robot_r_name = "arm_right";
+    const string robot_l_name("arm_left");
+    const string robot_r_name("arm_right");
     const string object_name("sphere");
 
     auto &q_sim = q_sim_batch_->get_q_sim();
