@@ -99,7 +99,6 @@ public:
   }
 
   const drake::multibody::ContactResults<double> &get_contact_results() const {
-    // TODO: return non-empty contact results.
     return contact_results_;
   }
 
@@ -217,7 +216,7 @@ private:
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+      const std::vector<Eigen::Vector3d> &beta_star,
       const double h,
       drake::multibody::ContactResults<double> *contact_results);
 
@@ -235,7 +234,8 @@ private:
                    const Eigen::Ref<const Eigen::VectorXd> &phi,
                    const QuasistaticSimParameters &params,
                    ModelInstanceIndexToVecMap *q_dict_ptr,
-                   Eigen::VectorXd *v_star_ptr, Eigen::VectorXd *beta_star_ptr);
+                   Eigen::VectorXd *v_star_ptr,
+                   std::vector<Eigen::Vector3d> *beta_star_ptr);
 
   void
   ForwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -246,7 +246,7 @@ private:
                     ModelInstanceIndexToVecMap *q_dict_ptr,
                     Eigen::VectorXd *v_star_ptr);
 
-  void ForwardLogPyramidMySolver(
+  void ForwardLogPyramidInHouse(
       const Eigen::Ref<const Eigen::MatrixXd> &Q,
       const Eigen::Ref<const Eigen::VectorXd> &tau_h,
       const Eigen::Ref<const Eigen::MatrixXd> &J,
@@ -294,7 +294,6 @@ private:
   std::unique_ptr<QpLogBarrierSolver> solver_log_pyramid_;
   std::unique_ptr<SocpLogBarrierSolver> solver_log_icecream_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
-  drake::solvers::SolverOptions solver_options_;
 
   // QP derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.

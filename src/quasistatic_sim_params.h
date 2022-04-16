@@ -105,6 +105,8 @@ struct QuasistaticSimParameters {
   double unactuated_mass_scale{NAN};
   /*
    * Some computation can be saved by setting this to false.
+   * Contact forces are only computed for "exact" forward dynamics, i.e.
+   * kQpMp and kSocpMp.
    */
   bool calc_contact_forces{true};
   // -------------------------- CPP only --------------------------
