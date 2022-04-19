@@ -7,6 +7,7 @@
 #include "log_barrier_solver.h"
 #include "qp_derivatives.h"
 #include "quasistatic_simulator.h"
+#include "socp_derivatives.h"
 
 namespace py = pybind11;
 
@@ -129,6 +130,15 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_DzDe", &Class::get_DzDe)
         .def("get_DzDb", &Class::get_DzDb)
         .def("get_DzDvecG_active", &Class::get_DzDvecG_active);
+  }
+
+  {
+    using Class = SocpDerivatives;
+    py::class_<Class>(m, "SocpDerivatives")
+        .def(py::init<double>(), py::arg("tol"))
+        .def("UpdateProblem", &Class::UpdateProblem)
+        .def("get_DzDe", &Class::get_DzDe)
+        .def("get_DzDb", &Class::get_DzDb);
   }
 
   {

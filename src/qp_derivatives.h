@@ -13,11 +13,12 @@ public:
   explicit QpDerivativesBase(double tol) : tol_(tol){};
   [[nodiscard]] const Eigen::MatrixXd &get_DzDe() const { return DzDe_; };
   [[nodiscard]] const Eigen::MatrixXd &get_DzDb() const { return DzDb_; };
+  static void CheckSolutionError(double error, double tol, int n);
+  static Eigen::MatrixXd
+  CalcInverseAndCheck(const Eigen::Ref<const Eigen::MatrixXd> &A, double tol);
 
 protected:
-  void check_solution_error(double error, int n);
   const double tol_;
-  bool is_relative_err_small_{false};
   Eigen::MatrixXd DzDe_;
   Eigen::MatrixXd DzDb_;
 };

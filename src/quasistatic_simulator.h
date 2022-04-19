@@ -216,7 +216,7 @@ private:
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const std::vector<Eigen::Vector3d> &beta_star,
+      const std::vector<Eigen::Vector3d> &lambda_star,
       const double h,
       drake::multibody::ContactResults<double> *contact_results);
 
@@ -235,7 +235,7 @@ private:
                    const QuasistaticSimParameters &params,
                    ModelInstanceIndexToVecMap *q_dict_ptr,
                    Eigen::VectorXd *v_star_ptr,
-                   std::vector<Eigen::Vector3d> *beta_star_ptr);
+                   std::vector<Eigen::Vector3d> *lambda_star_ptr);
 
   void
   ForwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,

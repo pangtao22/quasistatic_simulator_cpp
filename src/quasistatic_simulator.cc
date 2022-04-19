@@ -364,18 +364,18 @@ void QuasistaticSimulator::CalcContactResultsQp(
 
 void QuasistaticSimulator::CalcContactResultsSocp(
     const std::vector<ContactPairInfo<double>> &contact_info_list,
-    const std::vector<Eigen::Vector3d> &beta_star, const double h,
+    const std::vector<Eigen::Vector3d> &lambda_star, const double h,
     drake::multibody::ContactResults<double> *contact_results) {
   const auto n_c = contact_info_list.size();
-  DRAKE_ASSERT(n_c == beta_star.size());
+  DRAKE_ASSERT(n_c == lambda_star.size());
   contact_results->Clear();
 
   for (int i_c = 0; i_c < n_c; i_c++) {
     const auto &cpi = contact_info_list[i_c];
 
     // Compute contact force.
-    Vector3d f_Ac_W = cpi.nhat_BA_W * beta_star[i_c][0] / cpi.mu;
-    f_Ac_W += cpi.t_W * beta_star[i_c].tail(2);
+    Vector3d f_Ac_W = cpi.nhat_BA_W * lambda_star[i_c][0] / cpi.mu;
+    f_Ac_W += cpi.t_W * lambda_star[i_c].tail(2);
     f_Ac_W /= h;
 
     // Assemble Contact info.
@@ -441,14 +441,14 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                          &J_list, &phi);
 
     if (fm == ForwardDynamicsMode::kSocpMp) {
-      std::vector<Eigen::Vector3d> beta_star;
+      std::vector<Eigen::Vector3d> lambda_star;
 
       ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
-                  &beta_star);
+                  &lambda_star);
 
       if (params.calc_contact_forces) {
         CalcContactResultsSocp(cjc_->get_contact_pair_info_list(),
-                               beta_star, params.h, &contact_results_);
+                               lambda_star, params.h, &contact_results_);
       }
 
       if (params.gradient_mode != GradientMode::kNone) {
@@ -547,7 +547,7 @@ void QuasistaticSimulator::ForwardSocp(
     const Eigen::Ref<const Eigen::VectorXd> &phi,
     const QuasistaticSimParameters &params,
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
-    std::vector<Eigen::Vector3d> *beta_star_ptr) {
+    std::vector<Eigen::Vector3d> *lambda_star_ptr) {
   auto &q_dict = *q_dict_ptr;
   VectorXd &v_star = *v_star_ptr;
   const auto h = params.h;
@@ -586,12 +586,12 @@ void QuasistaticSimulator::ForwardSocp(
   // Primal and dual solutions.
   v_star = mp_result_.GetSolution(v);
   if (calc_dual) {
-    beta_star_ptr->resize(n_c);
+    lambda_star_ptr->resize(n_c);
     for (int i = 0; i < n_c; i++) {
-      beta_star_ptr->at(i) = mp_result_.GetDualSolution(constraints[i]);
+      lambda_star_ptr->at(i) = mp_result_.GetDualSolution(constraints[i]);
     }
   } else {
-    beta_star_ptr->clear();
+    lambda_star_ptr->clear();
   }
 
   // Update q_dict.
