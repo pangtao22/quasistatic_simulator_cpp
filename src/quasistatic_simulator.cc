@@ -447,8 +447,8 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                   &lambda_star);
 
       if (params.calc_contact_forces) {
-        CalcContactResultsSocp(cjc_->get_contact_pair_info_list(),
-                               lambda_star, params.h, &contact_results_);
+        CalcContactResultsSocp(cjc_->get_contact_pair_info_list(), lambda_star,
+                               params.h, &contact_results_);
       }
 
       if (params.gradient_mode != GradientMode::kNone) {
@@ -570,7 +570,7 @@ void QuasistaticSimulator::ForwardSocp(
 
   drake::solvers::SolverBase *solver;
   const bool calc_dual = (params.calc_contact_forces or
-      params.gradient_mode != GradientMode::kNone);
+                          params.gradient_mode != GradientMode::kNone);
   if (calc_dual) {
     solver = solver_msk_.get();
   } else {
@@ -907,37 +907,24 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
   // 3D systems.
   MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
   for (const auto &model : models_all_) {
-    const auto &idx_v_model = velocity_indices_.at(model);
-    const auto &idx_q_model = position_indices_.at(model);
+    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
+        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
+    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
+        position_indices_.at(model).data(), position_indices_.at(model).size());
 
     if (is_3d_floating_.at(model)) {
       // If q contains a quaternion.
       const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
-      const Eigen::Matrix<double, 4, 3> E = CalcE(Q_WB);
 
-      MatrixXd Dv_nextDqa_cmd_model_rot(3, n_v_a_);
-      for (int i = 0; i < 3; i++) {
-        Dv_nextDqa_cmd_model_rot.row(i) = Dv_nextDqa_cmd.row(idx_v_model[i]);
-      }
-
-      MatrixXd E_X_Dv_nextDqa_cmd_model_rot = E * Dv_nextDqa_cmd_model_rot;
-      for (int i = 0; i < 7; i++) {
-        const int i_q = idx_q_model[i];
-        if (i < 4) {
-          // Rotation.
-          Dq_dot_nextDqa_cmd.row(i_q) = E_X_Dv_nextDqa_cmd_model_rot.row(i);
-        } else {
-          // Translation.
-          const int i_v = idx_v_model[i - 1];
-          Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
-        }
-      }
+      // Rotation.
+      Dq_dot_nextDqa_cmd(idx_q_model.head(4), Eigen::all) =
+          CalcE(Q_WB) * Dv_nextDqa_cmd(idx_v_model.head(3), Eigen::all);
+      // Translation.
+      Dq_dot_nextDqa_cmd(idx_q_model.tail(3), Eigen::all) =
+          Dv_nextDqa_cmd(idx_v_model.tail(3), Eigen::all);
     } else {
-      for (int i = 0; i < idx_v_model.size(); i++) {
-        const int i_q = idx_q_model[i];
-        const int i_v = idx_v_model[i];
-        Dq_dot_nextDqa_cmd.row(i_q) = Dv_nextDqa_cmd.row(i_v);
-      }
+      Dq_dot_nextDqa_cmd(idx_q_model, Eigen::all) =
+          Dv_nextDqa_cmd(idx_v_model, Eigen::all);
     }
   }
   return h * Dq_dot_nextDqa_cmd;
