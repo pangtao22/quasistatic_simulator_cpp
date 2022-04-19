@@ -1,3 +1,4 @@
+#include <iostream>
 #include "socp_derivatives.h"
 
 using Eigen::Matrix3d;
@@ -5,6 +6,8 @@ using Eigen::MatrixXd;
 using Eigen::seq;
 using Eigen::seqN;
 using Eigen::VectorXd;
+using std::cout;
+using std::endl;
 
 MatrixXd CalcC(const Eigen::Ref<const Eigen::VectorXd> &v) {
   const auto n = v.size();
@@ -65,6 +68,8 @@ void SocpDerivatives::UpdateProblem(
   }
 
   const MatrixXd A = QpDerivatives::CalcInverseAndCheck(A_inv, tol_);
+//  cout << "A_inv\n" << A_inv << endl;
+//  cout << "A\n" << A << endl;
 
   const MatrixXd &A_11 = A.topLeftCorner(n_z, n_z);
   DzDb_ = -A_11;
@@ -73,6 +78,7 @@ void SocpDerivatives::UpdateProblem(
   for (int i = 0; i < n_c_active; i++) {
     const auto idx = lambda_star_active_indices_[i];
     DzDe_(Eigen::all, seqN(idx * m, m)) =
-        -A.block(0, i * m, n_z, m) * C_lambda_list[i];
+        -A.block(0, n_z + i * m, n_z, m) * C_lambda_list[i];
+//    cout << "i: " << i << " idx: "<< idx << endl << C_lambda_list[i] << endl;
   }
 }
