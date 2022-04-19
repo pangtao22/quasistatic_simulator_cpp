@@ -17,7 +17,7 @@ int main() {
   auto &sim_params = q_sim->get_mutable_sim_params();
   sim_params.h = 0.1;
   sim_params.log_barrier_weight = 100;
-  sim_params.forward_mode = ForwardDynamicsMode::kLogIcecream;
+  sim_params.forward_mode = ForwardDynamicsMode::kSocpMp;
   sim_params.gradient_mode = GradientMode::kBOnly;
 
   const auto n_q = q_sim->get_plant().num_positions();

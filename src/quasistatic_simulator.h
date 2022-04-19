@@ -9,6 +9,7 @@
 #include "contact_jacobian_calculator.h"
 #include "log_barrier_solver.h"
 #include "qp_derivatives.h"
+#include "socp_derivatives.h"
 
 /*
  * Denotes whether the indices are those of a model's configuration vector
@@ -216,7 +217,7 @@ private:
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const std::vector<Eigen::Vector3d> &lambda_star,
+      const std::vector<Eigen::VectorXd> &lambda_star,
       const double h,
       drake::multibody::ContactResults<double> *contact_results);
 
@@ -235,7 +236,8 @@ private:
                    const QuasistaticSimParameters &params,
                    ModelInstanceIndexToVecMap *q_dict_ptr,
                    Eigen::VectorXd *v_star_ptr,
-                   std::vector<Eigen::Vector3d> *lambda_star_ptr);
+                   std::vector<Eigen::VectorXd> *lambda_star_ptr,
+                   std::vector<Eigen::VectorXd> *e_list);
 
   void
   ForwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -270,8 +272,18 @@ private:
                   const ModelInstanceIndexToVecMap &q_dict,
                   const ModelInstanceIndexToVecMap &q_dict_next,
                   const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                  const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+                  const Eigen::Ref<const Eigen::VectorXd> &lambda_star,
                   const QuasistaticSimParameters &params);
+
+  void BackwardSocp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                    const std::vector<Eigen::Matrix3Xd> &J_list,
+                    const std::vector<Eigen::VectorXd> &e_list,
+                    const Eigen::Ref<const Eigen::VectorXd> &phi,
+                    const ModelInstanceIndexToVecMap &q_dict_next,
+                    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                    const std::vector<Eigen::VectorXd> &lambda_star_list,
+                    const QuasistaticSimParameters &params);
 
   void
   BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -295,9 +307,10 @@ private:
   std::unique_ptr<SocpLogBarrierSolver> solver_log_icecream_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
-  // QP derivatives. Refer to the python implementation of
+  // Optimization derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
   std::unique_ptr<QpDerivativesActive> dqp_;
+  std::unique_ptr<SocpDerivatives> dsocp_;
   Eigen::MatrixXd Dq_nextDq_;
   Eigen::MatrixXd Dq_nextDqa_cmd_;
 

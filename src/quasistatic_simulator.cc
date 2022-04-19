@@ -153,6 +153,8 @@ QuasistaticSimulator::QuasistaticSimulator(
   // QP derivative.
   dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
+  dsocp_ = std::make_unique<SocpDerivatives>(
+      sim_params_.gradient_lstsq_tolerance);
 
   // Find smallest stiffness.
   VectorXd min_stiffness_vec(models_actuated_.size());
@@ -364,7 +366,7 @@ void QuasistaticSimulator::CalcContactResultsQp(
 
 void QuasistaticSimulator::CalcContactResultsSocp(
     const std::vector<ContactPairInfo<double>> &contact_info_list,
-    const std::vector<Eigen::Vector3d> &lambda_star, const double h,
+    const vector<VectorXd> &lambda_star, const double h,
     drake::multibody::ContactResults<double> *contact_results) {
   const auto n_c = contact_info_list.size();
   DRAKE_ASSERT(n_c == lambda_star.size());
@@ -441,20 +443,20 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                          &J_list, &phi);
 
     if (fm == ForwardDynamicsMode::kSocpMp) {
-      std::vector<Eigen::Vector3d> lambda_star;
+      std::vector<Eigen::VectorXd> lambda_star_list;
+      std::vector<Eigen::VectorXd> e_list;
 
       ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
-                  &lambda_star);
+                  &lambda_star_list, &e_list);
 
       if (params.calc_contact_forces) {
-        CalcContactResultsSocp(cjc_->get_contact_pair_info_list(), lambda_star,
+        CalcContactResultsSocp(cjc_->get_contact_pair_info_list(),
+                               lambda_star_list,
                                params.h, &contact_results_);
       }
 
-      if (params.gradient_mode != GradientMode::kNone) {
-        throw std::logic_error(
-            "Gradient not supported yet for Forward Mode kSocpMp");
-      }
+      BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict_next, v_star,
+                   lambda_star_list, params);
       return;
     }
 
@@ -547,7 +549,8 @@ void QuasistaticSimulator::ForwardSocp(
     const Eigen::Ref<const Eigen::VectorXd> &phi,
     const QuasistaticSimParameters &params,
     ModelInstanceIndexToVecMap *q_dict_ptr, Eigen::VectorXd *v_star_ptr,
-    std::vector<Eigen::Vector3d> *lambda_star_ptr) {
+    std::vector<Eigen::VectorXd> *lambda_star_ptr,
+    std::vector<Eigen::VectorXd> *e_list) {
   auto &q_dict = *q_dict_ptr;
   VectorXd &v_star = *v_star_ptr;
   const auto h = params.h;
@@ -561,11 +564,10 @@ void QuasistaticSimulator::ForwardSocp(
   std::vector<drake::solvers::Binding<drake::solvers::LorentzConeConstraint>>
       constraints;
   for (int i_c = 0; i_c < n_c; i_c++) {
-    Vector3d e = Vector3d::Zero();
     const double mu = cjc_->get_friction_coefficient(i_c);
-    e[0] = phi[i_c] / mu / h;
-
-    constraints.push_back(prog.AddLorentzConeConstraint(J_list.at(i_c), e, v));
+    e_list->emplace_back(Vector3d(phi[i_c] / mu / h, 0, 0));
+    constraints.push_back(prog.AddLorentzConeConstraint(J_list.at(i_c),
+                                                        e_list->back(), v));
   }
 
   drake::solvers::SolverBase *solver;
@@ -586,9 +588,8 @@ void QuasistaticSimulator::ForwardSocp(
   // Primal and dual solutions.
   v_star = mp_result_.GetSolution(v);
   if (calc_dual) {
-    lambda_star_ptr->resize(n_c);
     for (int i = 0; i < n_c; i++) {
-      lambda_star_ptr->at(i) = mp_result_.GetDualSolution(constraints[i]);
+      lambda_star_ptr->emplace_back(mp_result_.GetDualSolution(constraints[i]));
     }
   } else {
     lambda_star_ptr->clear();
@@ -707,7 +708,7 @@ void QuasistaticSimulator::BackwardQp(
     const ModelInstanceIndexToVecMap &q_dict,
     const ModelInstanceIndexToVecMap &q_dict_next,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+    const Eigen::Ref<const Eigen::VectorXd> &lambda_star,
     const QuasistaticSimParameters &params) {
   if (params.gradient_mode == GradientMode::kNone) {
     return;
@@ -716,7 +717,7 @@ void QuasistaticSimulator::BackwardQp(
   const auto n_d = params.nd_per_contact;
 
   if (params.gradient_mode == GradientMode::kAB) {
-    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
+    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, lambda_star,
                         0.1 * params.h, true);
     const auto &Dv_nextDe = dqp_->get_DzDe();
     const auto &Dv_nextDb = dqp_->get_DzDb();
@@ -727,10 +728,41 @@ void QuasistaticSimulator::BackwardQp(
   }
 
   if (params.gradient_mode == GradientMode::kBOnly) {
-    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, beta_star,
+    dqp_->UpdateProblem(Q, -tau_h, -J, phi_constraints / h, v_star, lambda_star,
                         0.1 * params.h, false);
     const auto &Dv_nextDb = dqp_->get_DzDb();
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  throw std::runtime_error("Invalid gradient_mode.");
+}
+
+void QuasistaticSimulator::BackwardSocp(
+    const Eigen::Ref<const Eigen::MatrixXd> &Q,
+    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+    const vector<Eigen::Matrix3Xd> &J_list,
+    const std::vector<Eigen::VectorXd> &e_list,
+    const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const ModelInstanceIndexToVecMap &q_dict_next,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const std::vector<Eigen::VectorXd> &lambda_star_list,
+    const QuasistaticSimParameters &params) {
+  if (params.gradient_mode == GradientMode::kNone) {
+    return;
+  }
+
+  std::vector<Eigen::MatrixXd> G_list;
+  for (const auto& J : J_list) {
+    G_list.emplace_back(-J);
+  }
+
+  if (params.gradient_mode == GradientMode::kBOnly) {
+    dsocp_->UpdateProblem(Q, -tau_h, G_list, e_list, v_star, lambda_star_list,
+                          0.1 * params.h, false);
+    const auto &Dv_nextDb = dsocp_->get_DzDb();
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict_next);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     return;
   }
@@ -806,12 +838,7 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetVdictFromVec(
 
   for (const auto &model : models_all_) {
     const auto &idx_v = velocity_indices_.at(model);
-    auto v_model = VectorXd(idx_v.size());
-
-    for (int i = 0; i < idx_v.size(); i++) {
-      v_model[i] = v[idx_v[i]];
-    }
-    v_dict[model] = v_model;
+    v_dict[model] = v(idx_v);
   }
   return v_dict;
 }
@@ -823,12 +850,7 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQDictFromVec(
 
   for (const auto &model : models_all_) {
     const auto &idx_q = position_indices_.at(model);
-    auto q_model = VectorXd(idx_q.size());
-
-    for (int i = 0; i < idx_q.size(); i++) {
-      q_model[i] = q[idx_q[i]];
-    }
-    q_dict[model] = q_model;
+    q_dict[model] = q(idx_q);
   }
   return q_dict;
 }
@@ -837,11 +859,7 @@ Eigen::VectorXd QuasistaticSimulator::GetQVecFromDict(
     const ModelInstanceIndexToVecMap &q_dict) const {
   VectorXd q(n_q_);
   for (const auto &model : models_all_) {
-    const auto &idx_q = position_indices_.at(model);
-    const auto &q_model = q_dict.at(model);
-    for (int i = 0; i < idx_q.size(); i++) {
-      q[idx_q[i]] = q_model[i];
-    }
+    q(position_indices_.at(model)) = q_dict.at(model);
   }
   return q;
 }
