@@ -962,22 +962,78 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
 }
 
 /*
- * Arranges DGactiveDq[i] into a (n_lambda_active, n_v) matrix.
+ * Used to provide the optional input to CalcDGactiveDqFromJActiveList, when
+ * the dynamics is a QP.
  */
-std::vector<MatrixXd> CalcDGactiveDq(
-    const std::vector<MatrixX<AutoDiffXd>> &G_active_ad_list,
-    std::optional<const std::reference_wrapper<std::vector<std::vector<int>>>>
-        active_indices_list) {
-  const auto n_l = G_active_ad.rows();
-  const auto n_v = G_active_ad.cols();
-  const auto n_q = G_active_ad(0, 0).derivatives().size();
+std::vector<std::vector<int>> CalcRelativeActiveIndicesList(
+    const std::vector<int> &lambda_star_active_indices, const int n_d) {
+  int i_c_current = -1;
+  std::vector<std::vector<int>> relative_active_indices_list;
+  for(const auto i : lambda_star_active_indices) {
+    const int i_c = i / n_d;
+    if (i_c_current != i_c) {
+      relative_active_indices_list.emplace_back();
+      i_c_current = i_c;
+    }
+    relative_active_indices_list.back().push_back(i % n_d);
+  }
+  return relative_active_indices_list;
+}
+
+/*
+ * J_active_ad_list is a list of (n_d, n_v) matrices.
+ * For QP contact dynamics, n_d is number of extreme rays in the polyhedral
+ *  friction cone.
+ * For SOCP contact dynamics, n_d is 3.
+ *
+ * For QP dynamics, for contact Jacobian in J_active_ad_list, it is possible
+ *  that only some of its n_d rows are active. This is when the optional
+ *  relative_active_indices_list becomes useful: for J_active_ad_list[i],
+ *  relative_active_indices_list[i] stores the indices of its active rows,
+ *  ranging from 0 to n_d - 1.
+ *
+ * This function returns DGactiveDq, a list of n_q matrices, where DGactiveDq[i]
+ *  of shape (n_lambda_active, n_v) is the partial derivative of q[i] w.r.t
+ *  G_active.
+ *
+ * Note that G_active = -J_active!!!
+ */
+std::vector<MatrixXd> CalcDGactiveDqFromJActiveList(
+    const std::vector<MatrixX<AutoDiffXd>> &J_active_ad_list,
+    const std::vector<std::vector<int>> *relative_active_indices_list) {
+  int n_la; // Total number of active rows in G_active.
+  if (relative_active_indices_list) {
+    n_la = std::accumulate(
+        relative_active_indices_list->begin(),
+        relative_active_indices_list->end(), 0,
+        [](int a, const std::vector<int> &b) { return a + b.size(); });
+  } else {
+    n_la = J_active_ad_list.size() * J_active_ad_list.front().rows();
+  }
+  const auto n_v = J_active_ad_list.front().cols();
+  const auto n_q = J_active_ad_list.front()(0, 0).derivatives().size();
 
   vector<MatrixXd> DGactiveDq;
   for (int i_q = 0; i_q < n_q; i_q++) {
-    DGactiveDq.emplace_back(n_l, n_v);
-    for (int i = 0; i < n_l; i++) {
-      for (int j = 0; j < n_v; j++) {
-        DGactiveDq[i_q](i, j) = G_active_ad(i, j).derivatives()[i_q];
+    DGactiveDq.emplace_back(n_la, n_v);
+
+    int i_G_active = 0;
+    for (int i_c = 0; i_c < J_active_ad_list.size(); i_c++) {
+      const auto &J_i = J_active_ad_list[i_c];
+
+      std::vector<int> row_indices;
+      if (relative_active_indices_list) {
+        row_indices = relative_active_indices_list->at(i_c);
+      } else {
+        row_indices.resize(J_i.rows());
+        std::iota(row_indices.begin(), row_indices.end(), 0);
+      }
+
+      for (const auto &i : row_indices) {
+        for (int j = 0; j < n_v; j++) {
+          DGactiveDq.back()(i_G_active, j) = -J_i(i, j).derivatives()[i_q];
+        }
+        i_G_active += 1;
       }
     }
   }
@@ -998,7 +1054,6 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   // e := phi_constraints / h.
   MatrixXd De_active_Dq(n_la, n_v_);
   std::set<int> active_contact_indices;
-  std::vec
   for (int i = 0; i < n_la; i++) {
     const int i_c = lambda_star_active_indices[i] / n_d;
     De_active_Dq.row(i) = Jn.row(i_c) / h;
@@ -1034,7 +1089,10 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
                                   &phi_active_ad, &Jn_active_ad,
                                   &J_active_ad_list);
 
-    const auto DGactiveDq = CalcDGactiveDq(-J_active_ad);
+    const auto relative_active_indices_list =
+        CalcRelativeActiveIndicesList(lambda_star_active_indices, n_d);
+    const auto DGactiveDq = CalcDGactiveDqFromJActiveList(
+        J_active_ad_list, &relative_active_indices_list);
 
     for (int i_v = 0; i_v < n_v_; i_v++) {
       MatrixXd Dv_next_i_vDGactive(n_la, n_q_);
