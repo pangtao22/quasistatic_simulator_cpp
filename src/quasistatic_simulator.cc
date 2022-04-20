@@ -153,8 +153,8 @@ QuasistaticSimulator::QuasistaticSimulator(
   // QP derivative.
   dqp_ = std::make_unique<QpDerivativesActive>(
       sim_params_.gradient_lstsq_tolerance);
-  dsocp_ = std::make_unique<SocpDerivatives>(
-      sim_params_.gradient_lstsq_tolerance);
+  dsocp_ =
+      std::make_unique<SocpDerivatives>(sim_params_.gradient_lstsq_tolerance);
 
   // Find smallest stiffness.
   VectorXd min_stiffness_vec(models_actuated_.size());
@@ -451,8 +451,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
       if (params.calc_contact_forces) {
         CalcContactResultsSocp(cjc_->get_contact_pair_info_list(),
-                               lambda_star_list,
-                               params.h, &contact_results_);
+                               lambda_star_list, params.h, &contact_results_);
       }
 
       BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict_next, v_star,
@@ -479,12 +478,26 @@ void QuasistaticSimulator::CalcPyramidMatrices(
     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     const ModelInstanceIndexToVecMap &tau_ext_dict,
     const QuasistaticSimParameters &params, Eigen::MatrixXd *Q,
-    Eigen::VectorXd *tau_h, Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
-    Eigen::VectorXd *phi, Eigen::VectorXd *phi_constraints) const {
+    Eigen::VectorXd *tau_h_ptr, Eigen::MatrixXd *Jn_ptr, Eigen::MatrixXd *J_ptr,
+    Eigen::VectorXd *phi_ptr, Eigen::VectorXd *phi_constraints_ptr) const {
   const auto sdps = CalcCollisionPairs(params.contact_detection_tolerance);
-  cjc_->CalcJacobianAndPhiQp(context_plant_, sdps, params.nd_per_contact, phi,
-                             phi_constraints, Jn, J);
-  CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h,
+  std::vector<MatrixXd> J_list;
+  const auto n_d = params.nd_per_contact;
+  cjc_->CalcJacobianAndPhiQp(context_plant_, sdps, n_d, phi_ptr, Jn_ptr,
+                             &J_list);
+  MatrixXd &J = *J_ptr;
+  VectorXd &phi_constraints = *phi_constraints_ptr;
+
+  const auto n_c = J_list.size();
+  const auto n_f = n_c * n_d;
+  J.resize(n_f, n_v_);
+  phi_constraints.resize(n_f);
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    J(Eigen::seqN(i_c * n_d, n_d), Eigen::all) = J_list[i_c];
+    phi_constraints(Eigen::seqN(i_c * n_d, n_d)).setConstant((*phi_ptr)(i_c));
+  }
+
+  CalcQAndTauH(q_dict, q_a_cmd_dict, tau_ext_dict, params.h, Q, tau_h_ptr,
                params.unactuated_mass_scale);
 }
 
@@ -566,8 +579,8 @@ void QuasistaticSimulator::ForwardSocp(
   for (int i_c = 0; i_c < n_c; i_c++) {
     const double mu = cjc_->get_friction_coefficient(i_c);
     e_list->emplace_back(Vector3d(phi[i_c] / mu / h, 0, 0));
-    constraints.push_back(prog.AddLorentzConeConstraint(J_list.at(i_c),
-                                                        e_list->back(), v));
+    constraints.push_back(
+        prog.AddLorentzConeConstraint(J_list.at(i_c), e_list->back(), v));
   }
 
   drake::solvers::SolverBase *solver;
@@ -754,7 +767,7 @@ void QuasistaticSimulator::BackwardSocp(
   }
 
   std::vector<Eigen::MatrixXd> G_list;
-  for (const auto& J : J_list) {
+  for (const auto &J : J_list) {
     G_list.emplace_back(-J);
   }
 
@@ -951,20 +964,20 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
 /*
  * Arranges DGactiveDq[i] into a (n_lambda_active, n_v) matrix.
  */
-std::vector<MatrixXd>
-CalcDGactiveDq(const Eigen::Ref<const MatrixX<AutoDiffXd>> &G_ad,
-               const std::vector<int> &lambda_star_active_indices) {
-  const auto n_v = G_ad.cols();
-  const auto n_q = G_ad(0, 0).derivatives().size();
-  const auto n_lambda_active = lambda_star_active_indices.size();
+std::vector<MatrixXd> CalcDGactiveDq(
+    const std::vector<MatrixX<AutoDiffXd>> &G_active_ad_list,
+    std::optional<const std::reference_wrapper<std::vector<std::vector<int>>>>
+        active_indices_list) {
+  const auto n_l = G_active_ad.rows();
+  const auto n_v = G_active_ad.cols();
+  const auto n_q = G_active_ad(0, 0).derivatives().size();
 
   vector<MatrixXd> DGactiveDq;
   for (int i_q = 0; i_q < n_q; i_q++) {
-    DGactiveDq.emplace_back(n_lambda_active, n_v);
-    for (int i = 0; i < n_lambda_active; i++) {
+    DGactiveDq.emplace_back(n_l, n_v);
+    for (int i = 0; i < n_l; i++) {
       for (int j = 0; j < n_v; j++) {
-        DGactiveDq[i_q](i, j) =
-            G_ad(lambda_star_active_indices[i], j).derivatives()[i_q];
+        DGactiveDq[i_q](i, j) = G_active_ad(i, j).derivatives()[i_q];
       }
     }
   }
@@ -976,66 +989,58 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
     const ModelInstanceIndexToVecMap &q_dict, const double h,
     const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_d) const {
-  const auto n_c = Jn.rows();
-  const auto n_f = n_c * n_d;
+  // Compute Dv_nextDvecG from the KKT conditions of the QP.
+  const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
+      dqp_->get_DzDvecG_active();
+  const auto n_la = lambda_star_active_indices.size();
 
   /*----------------------------------------------------------------*/
-  // TODO: consider only active constraints.
-  MatrixXd Dphi_constraints_Dq(n_f, n_v_);
-  int i_start = 0;
-  for (int i_c = 0; i_c < n_c; i_c++) {
-    for (int i = i_start; i < i_start + n_d; i++) {
-      Dphi_constraints_Dq.row(i) = Jn.row(i_c);
-    }
-    i_start += n_d;
+  // e := phi_constraints / h.
+  MatrixXd De_active_Dq(n_la, n_v_);
+  std::set<int> active_contact_indices;
+  std::vec
+  for (int i = 0; i < n_la; i++) {
+    const int i_c = lambda_star_active_indices[i] / n_d;
+    De_active_Dq.row(i) = Jn.row(i_c) / h;
+    active_contact_indices.insert(i_c);
   }
 
   /*----------------------------------------------------------------*/
   MatrixXd DbDq = MatrixXd::Zero(n_v_, n_v_);
-  int j_start = 0;
   for (const auto &model : models_actuated_) {
     const auto &idx_v = velocity_indices_.at(model);
-    const int n_v_i = idx_v.size();
     const auto &Kq_i = robot_stiffness_.at(model);
-
-    for (int k = 0; k < n_v_i; k++) {
-      int i = idx_v[k];
-      int j = j_start + k;
-      DbDq(i, i) = h * Kq_i[k];
-    }
-
-    j_start += n_v_i;
+    DbDq(idx_v, idx_v).diagonal() = h * Kq_i;
   }
 
   /*----------------------------------------------------------------*/
-  MatrixXd Dv_nextDq = Dv_nextDb * DbDq + Dv_nextDe * Dphi_constraints_Dq / h;
+  MatrixXd Dv_nextDq = Dv_nextDb * DbDq;
+  Dv_nextDq += Dv_nextDe(Eigen::all, lambda_star_active_indices) * De_active_Dq;
 
   /*----------------------------------------------------------------*/
-  // Compute Dv_nextDvecG from the KKT conditions of the QP.
-  const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
-      dqp_->get_DzDvecG_active();
-
   if (not lambda_star_active_indices.empty()) {
     // This is skipped if there is no contact.
     // Compute DvecGDq using Autodiff through MBP.
     const auto q = GetQVecFromDict(q_dict);
     const auto q_ad = InitializeAutoDiff(q);
     UpdateMbpAdPositions(q_ad);
-    const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
-    MatrixX<AutoDiffXd> Jn_ad, J_ad;
-    VectorX<AutoDiffXd> phi_ad, phi_constraints_ad;
-    cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps, n_d, &phi_ad,
-                                  &phi_constraints_ad, &Jn_ad, &J_ad);
+    const auto sdps_active =
+        CalcSignedDistancePairsFromCollisionPairs(active_contact_indices);
+    // TODO: only J_active_ad is used. Think of a less wasteful interface?
+    std::vector<MatrixX<AutoDiffXd>> J_active_ad_list;
+    MatrixX<AutoDiffXd> Jn_active_ad;
+    VectorX<AutoDiffXd> phi_active_ad;
+    cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps_active, n_d,
+                                  &phi_active_ad, &Jn_active_ad,
+                                  &J_active_ad_list);
 
-    const auto DGactiveDq = CalcDGactiveDq(-J_ad, lambda_star_active_indices);
+    const auto DGactiveDq = CalcDGactiveDq(-J_active_ad);
 
-    const auto n_lambda_active = lambda_star_active_indices.size();
     for (int i_v = 0; i_v < n_v_; i_v++) {
-      MatrixXd Dv_next_i_vDGactive(n_lambda_active, n_q_);
-      for (int i = 0; i < n_lambda_active; i++) {
+      MatrixXd Dv_next_i_vDGactive(n_la, n_q_);
+      for (int i = 0; i < n_la; i++) {
         for (int j = 0; j < n_q_; j++) {
-          Dv_next_i_vDGactive(i, j) =
-              Dv_nextDvecG_active(i_v, n_lambda_active * j + i);
+          Dv_next_i_vDGactive(i, j) = Dv_nextDvecG_active(i_v, n_la * j + i);
         }
       }
       for (int i_q = 0; i_q < n_q_; i_q++) {
@@ -1103,9 +1108,11 @@ QuasistaticSimulator::CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
 }
 
 std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
-QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs() const {
+QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs(
+    const std::set<int> &active_contact_indices) const {
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>> sdps_ad;
-  for (const auto &collision_pair : collision_pairs_) {
+  for (const auto i : active_contact_indices) {
+    const auto &collision_pair = collision_pairs_[i];
     sdps_ad.push_back(query_object_ad_->ComputeSignedDistancePairClosestPoints(
         collision_pair.first, collision_pair.second));
   }

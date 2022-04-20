@@ -183,7 +183,8 @@ private:
   CalcCollisionPairs(double contact_detection_tolerance) const;
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
-  CalcSignedDistancePairsFromCollisionPairs() const;
+  CalcSignedDistancePairsFromCollisionPairs(
+      const std::set<int>& active_contact_indices) const;
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
@@ -196,10 +197,10 @@ private:
                            const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                            const ModelInstanceIndexToVecMap &tau_ext_dict,
                            const QuasistaticSimParameters &params,
-                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
-                           Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
-                           Eigen::VectorXd *phi,
-                           Eigen::VectorXd *phi_constraints) const;
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h_ptr,
+                           Eigen::MatrixXd *Jn_ptr, Eigen::MatrixXd *J_ptr,
+                           Eigen::VectorXd *phi_ptr,
+                           Eigen::VectorXd *phi_constraints_ptr) const;
 
   void CalcIcecreamMatrices(const ModelInstanceIndexToVecMap &q_dict,
                             const ModelInstanceIndexToVecMap &q_a_cmd_dict,
