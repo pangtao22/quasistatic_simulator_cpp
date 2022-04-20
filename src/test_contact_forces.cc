@@ -4,6 +4,7 @@
 
 #include "get_model_paths.h"
 #include "quasistatic_parser.h"
+#include "quasistatic_simulator.h"
 
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
@@ -57,7 +58,7 @@ TEST_F(TestContactForces, TestNormalVsWeight) {
   params_.forward_mode = ForwardDynamicsMode::kQpMp;
   drake::multibody::ContactResults<double> cr_qp;
   {
-    BatchQuasistaticSimulator::CalcDynamics(q_sim_.get(), q0_, u0_, params_);
+    QuasistaticSimulator::CalcDynamics(q_sim_.get(), q0_, u0_, params_);
     cr_qp = q_sim_->get_contact_results();
     ASSERT_EQ(cr_qp.num_point_pair_contacts(), 1);
   }
@@ -68,7 +69,7 @@ TEST_F(TestContactForces, TestNormalVsWeight) {
   params_.forward_mode = ForwardDynamicsMode::kSocpMp;
   drake::multibody::ContactResults<double> cr_socp;
   {
-    BatchQuasistaticSimulator::CalcDynamics(q_sim_.get(), q0_, u0_, params_);
+    QuasistaticSimulator::CalcDynamics(q_sim_.get(), q0_, u0_, params_);
     cr_socp = q_sim_->get_contact_results();
     ASSERT_EQ(cr_socp.num_point_pair_contacts(), 1);
   }

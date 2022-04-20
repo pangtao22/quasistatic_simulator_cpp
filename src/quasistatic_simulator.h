@@ -150,6 +150,12 @@ public:
   ModelInstanceIndexToVecMap
   GetQaCmdDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
 
+  static Eigen::VectorXd
+  CalcDynamics(QuasistaticSimulator *q_sim,
+               const Eigen::Ref<const Eigen::VectorXd> &q,
+               const Eigen::Ref<const Eigen::VectorXd> &u,
+               const QuasistaticSimParameters &sim_params);
+
 private:
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
@@ -184,7 +190,7 @@ private:
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
   CalcSignedDistancePairsFromCollisionPairs(
-      const std::set<int>& active_contact_indices) const;
+      const std::set<int> &active_contact_indices) const;
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
@@ -218,8 +224,7 @@ private:
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const std::vector<Eigen::VectorXd> &lambda_star,
-      const double h,
+      const std::vector<Eigen::VectorXd> &lambda_star, const double h,
       drake::multibody::ContactResults<double> *contact_results);
 
   void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,

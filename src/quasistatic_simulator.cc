@@ -1283,3 +1283,14 @@ void QuasistaticSimulator::UpdateQdictFromV(
     }
   }
 }
+VectorXd QuasistaticSimulator::CalcDynamics(
+    QuasistaticSimulator *q_sim, const Eigen::Ref<const VectorXd> &q,
+    const Eigen::Ref<const VectorXd> &u,
+    const QuasistaticSimParameters &sim_params) {
+  q_sim->UpdateMbpPositions(q);
+  auto tau_ext_dict = q_sim->CalcTauExt({});
+  auto q_a_cmd_dict = q_sim->GetQaCmdDictFromVec(u);
+  const auto &sp = q_sim->get_sim_params();
+  q_sim->Step(q_a_cmd_dict, tau_ext_dict, sim_params);
+  return q_sim->GetMbpPositionsAsVec();
+}
