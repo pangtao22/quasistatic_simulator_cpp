@@ -735,7 +735,7 @@ void QuasistaticSimulator::BackwardQp(
     const auto &Dv_nextDe = dqp_->get_DzDe();
     const auto &Dv_nextDb = dqp_->get_DzDb();
 
-    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, q_dict, h, Jn, n_d);
+    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, q_dict_next, h, Jn, n_d);
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
     return;
   }
@@ -936,7 +936,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
   }
 
   // 3D systems.
-  return h * ConvertVToQdot(q_dict, Dv_nextDqa_cmd);
+  return h * ConvertRowVToQdot(q_dict, Dv_nextDqa_cmd);
 }
 
 /*
@@ -1034,8 +1034,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   std::set<int> active_contact_indices;
   for (int i = 0; i < n_la; i++) {
     const int i_c = lambda_star_active_indices[i] / n_d;
-    // TODO: Jn is w.r.t. v, not q_dot. FUCK!
-    De_active_Dq.row(i) = Jn.row(i_c) / h;
+    De_active_Dq.row(i) = ConvertColVToQdot(q_dict, Jn.row(i_c)) / h;
     active_contact_indices.insert(i_c);
   }
 
@@ -1082,7 +1081,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
   }
 
-  return MatrixXd::Identity(n_q_, n_q_) + h * ConvertVToQdot(q_dict, Dv_nextDq);
+  return MatrixXd::Identity(n_q_, n_q_) +
+         h * ConvertRowVToQdot(q_dict, Dv_nextDq);
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -1128,18 +1128,36 @@ QuasistaticSimulator::GetModelInstanceNameToIndexMap() const {
   return name_to_index_map;
 }
 
+inline Eigen::Matrix3d
+MakeSkewSymmetricFromVec(const Eigen::Ref<const Vector3d> &v) {
+  return Eigen::Matrix3d{{0, -v[2], v[1]}, {v[2], 0, -v[0]}, {-v[1], v[0], 0}};
+}
+
 Eigen::Matrix<double, 4, 3>
-QuasistaticSimulator::CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
+QuasistaticSimulator::CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   Eigen::Matrix<double, 4, 3> E;
-  E.row(0) << -Q[1], -Q[2], -Q[3];
-  E.row(1) << Q[0], Q[3], -Q[2];
-  E.row(2) << -Q[3], Q[0], Q[1];
-  E.row(3) << Q[2], -Q[1], Q[0];
+  //  E.row(0) << -Q[1], -Q[2], -Q[3];
+  //  E.row(1) << Q[0], Q[3], -Q[2];
+  //  E.row(2) << -Q[3], Q[0], Q[1];
+  //  E.row(3) << Q[2], -Q[1], Q[0];
+  E.row(0) = -Q.tail(3);
+  E.bottomRows(3) = -MakeSkewSymmetricFromVec(Q.tail(3));
+  E.bottomRows(3).diagonal().setConstant(Q[0]);
   E *= 0.5;
   return E;
 }
 
-Eigen::MatrixXd QuasistaticSimulator::ConvertVToQdot(
+Eigen::Matrix<double, 3, 4>
+QuasistaticSimulator::CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q) {
+  Eigen::Matrix<double, 3, 4> E;
+  E.col(0) = -Q.tail(3);
+  E.rightCols(3) = MakeSkewSymmetricFromVec(Q.tail(3));
+  E.rightCols(3).diagonal().setConstant(Q[0]);
+  E *= 2;
+  return E;
+}
+
+Eigen::MatrixXd QuasistaticSimulator::ConvertRowVToQdot(
     const ModelInstanceIndexToVecMap &q_dict,
     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const {
   MatrixXd M_qdot(n_q_, M_v.cols());
@@ -1149,18 +1167,46 @@ Eigen::MatrixXd QuasistaticSimulator::ConvertVToQdot(
     const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
         position_indices_.at(model).data(), position_indices_.at(model).size());
 
-    if (is_3d_floating_.at(model)) {
+    if (is_model_floating(model)) {
       // If q contains a quaternion.
       const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
 
       // Rotation.
       M_qdot(idx_q_model.head(4), Eigen::all) =
-          CalcE(Q_WB) * M_v(idx_v_model.head(3), Eigen::all);
+          CalcNW2Qdot(Q_WB) * M_v(idx_v_model.head(3), Eigen::all);
       // Translation.
       M_qdot(idx_q_model.tail(3), Eigen::all) =
           M_v(idx_v_model.tail(3), Eigen::all);
     } else {
       M_qdot(idx_q_model, Eigen::all) = M_v(idx_v_model, Eigen::all);
+    }
+  }
+
+  return M_qdot;
+}
+
+Eigen::MatrixXd QuasistaticSimulator::ConvertColVToQdot(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const {
+  MatrixXd M_qdot(M_v.rows(), n_q_);
+  for (const auto &model : models_all_) {
+    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
+        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
+    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
+        position_indices_.at(model).data(), position_indices_.at(model).size());
+
+    if (is_model_floating(model)) {
+      const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
+
+      // Rotation.
+      M_qdot(Eigen::all, idx_q_model.head(4)) =
+          M_v(Eigen::all, idx_v_model.head(3)) * CalcNQdot2W(Q_WB);
+
+      // Translation.
+      M_qdot(Eigen::all, idx_q_model.tail(3)) =
+          M_v(Eigen::all, idx_v_model.tail(3));
+    } else {
+      M_qdot(Eigen::all, idx_q_model) = M_v(Eigen::all, idx_v_model);
     }
   }
 
@@ -1255,7 +1301,7 @@ void QuasistaticSimulator::UpdateQdictFromV(
 
       VectorXd dq_u(7);
       const auto &v_u = v_dict.at(model);
-      dq_u.head(4) = CalcE(Q) * v_u.head(3) * h;
+      dq_u.head(4) = CalcNW2Qdot(Q) * v_u.head(3) * h;
       dq_u.tail(3) = v_u.tail(3) * h;
 
       dq_dict[model] = dq_u;

@@ -87,6 +87,15 @@ public:
     return sim_params_;
   }
 
+  /*
+   * Technically it only makes sense for Bodies to float. But our convention
+   * is that un-actuated model instances only consist of one rigid body.
+   */
+  [[nodiscard]] bool
+  is_model_floating(drake::multibody::ModelInstanceIndex m) const {
+    return is_3d_floating_.at(m);
+  }
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };
@@ -160,10 +169,23 @@ public:
    * Wrapper around QuasistaticSimulator::Step, which takes as inputs state
    * and input vectors, and returns the next state as a vector.
    */
-  Eigen::VectorXd
-  CalcDynamics(const Eigen::Ref<const Eigen::VectorXd> &q,
-               const Eigen::Ref<const Eigen::VectorXd> &u,
-               const QuasistaticSimParameters &sim_params);
+  Eigen::VectorXd CalcDynamics(const Eigen::Ref<const Eigen::VectorXd> &q,
+                               const Eigen::Ref<const Eigen::VectorXd> &u,
+                               const QuasistaticSimParameters &sim_params);
+
+  static Eigen::Matrix<double, 4, 3>
+  CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  static Eigen::Matrix<double, 3, 4>
+  CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  Eigen::MatrixXd
+  ConvertRowVToQdot(const ModelInstanceIndexToVecMap &q_dict,
+                    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
+
+  Eigen::MatrixXd
+  ConvertColVToQdot(const ModelInstanceIndexToVecMap &q_dict,
+                    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
 
 private:
   [[nodiscard]] std::vector<int>
@@ -186,12 +208,6 @@ private:
                            const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
                            const int n_d) const;
-  static Eigen::Matrix<double, 4, 3>
-  CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
-
-  Eigen::MatrixXd ConvertVToQdot(
-      const ModelInstanceIndexToVecMap &q_dict,
-      const Eigen::Ref<const Eigen::MatrixXd>& M_v) const;
 
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,

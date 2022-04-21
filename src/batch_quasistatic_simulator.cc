@@ -200,9 +200,13 @@ BatchQuasistaticSimulator::CalcDynamicsParallel(
 
     q_sim_iter++;
     x_next_iter++;
-    A_iter++;
-    B_iter++;
     is_valid_iter++;
+    if (calc_A) {
+      A_iter++;
+    }
+    if (calc_B) {
+      B_iter++;
+    }
   }
 
   // Collect results from threads, and assemble x_next_batch.
