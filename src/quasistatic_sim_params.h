@@ -110,7 +110,7 @@ struct QuasistaticSimParameters {
    */
   bool calc_contact_forces{true};
   // -------------------------- CPP only --------------------------
-  double gradient_lstsq_tolerance{5e-2};
+  double gradient_lstsq_tolerance{0.3};
   // -------------------------- Not Set in YAML -------------------------
   ForwardDynamicsMode forward_mode{ForwardDynamicsMode::kQpMp};
   GradientMode gradient_mode{GradientMode::kNone};

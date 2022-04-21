@@ -35,7 +35,8 @@ public:
                        const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                        const QuasistaticSimParameters &sim_params) const;
 
-  std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
+  std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>,
+             std::vector<Eigen::MatrixXd>, std::vector<bool>>
   CalcDynamicsSerial(const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
                      const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
                      const QuasistaticSimParameters &sim_params) const;

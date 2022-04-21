@@ -180,6 +180,10 @@ private:
   static Eigen::Matrix<double, 4, 3>
   CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
+  Eigen::MatrixXd ConvertVToQdot(
+      const ModelInstanceIndexToVecMap &q_dict,
+      const Eigen::Ref<const Eigen::MatrixXd>& M_v) const;
+
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,
                                      const ModelInstanceIndexToVecMap &q_dict,

@@ -4,8 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include "quasistatic_parser.h"
 #include "get_model_paths.h"
+#include "quasistatic_parser.h"
 
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
@@ -25,7 +25,7 @@ class TestBatchQuasistaticSimulator : public ::testing::Test {
 protected:
   void SetUp() override {
     // Make sure that n_tasks_ is not divisible by hardware_concurrency.
-    n_tasks_ = std::thread::hardware_concurrency() * 20 + 1;
+    n_tasks_ = std::thread::hardware_concurrency() * 10 + 1;
     sim_params_ = {};
   }
 
@@ -136,14 +136,14 @@ protected:
     EXPECT_LT(avg_diff, tol);
   }
 
-  void CompareB(const std::vector<MatrixXd> &B_batch_1,
-                const std::vector<MatrixXd> &B_batch_2,
-                const double tol) const {
-    EXPECT_EQ(n_tasks_, B_batch_1.size());
-    EXPECT_EQ(n_tasks_, B_batch_2.size());
+  void CompareMatrices(const std::vector<MatrixXd> &M_batch_1,
+                       const std::vector<MatrixXd> &M_batch_2,
+                       const double tol) const {
+    EXPECT_EQ(n_tasks_, M_batch_1.size());
+    EXPECT_EQ(n_tasks_, M_batch_2.size());
     for (int i = 0; i < n_tasks_; i++) {
-      double err = (B_batch_1[i] - B_batch_2[i]).norm();
-      double rel_err = err / B_batch_1[i].norm();
+      double err = (M_batch_1[i] - M_batch_2[i]).norm();
+      double rel_err = err / M_batch_1[i].norm();
       EXPECT_LT(err, tol);
       EXPECT_LT(rel_err, 0.01);
     }
@@ -158,10 +158,12 @@ protected:
 
 TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
   SetUpPlanarHand();
-  auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-  q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
+  auto [x_next_batch_parallel, A_batch_parallel, B_batch_parallel,
+        is_valid_batch_parallel] =
+      q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
-  auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
+  auto [x_next_batch_serial, A_batch_serial, B_batch_serial,
+        is_valid_batch_serial] =
       q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
   // is_valid.
   CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
@@ -171,6 +173,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsPlanarHand) {
 
   // B.
   EXPECT_EQ(B_batch_parallel.size(), 0);
+  EXPECT_EQ(B_batch_serial.size(), 0);
+
+  // A.
+  EXPECT_EQ(A_batch_parallel.size(), 0);
   EXPECT_EQ(B_batch_serial.size(), 0);
 }
 
@@ -182,13 +188,16 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
       ForwardDynamicsMode::kLogIcecream};
   std::vector<double> tol = {1e-6, 1e-6, 1e-6, 1e-5, 1e-5};
 
-  for (int i = 0; i < forward_modes_to_test.size(); i++) {
-    sim_params_.forward_mode = forward_modes_to_test[i];
-    auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
-    q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
+  int i = 0;
+  for (const auto forward_mode : forward_modes_to_test) {
+    sim_params_.forward_mode = forward_mode;
+    auto [x_next_batch_parallel, A_batch_parallel, B_batch_parallel,
+          is_valid_batch_parallel] =
+        q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
-    auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
-    q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
+    auto [x_next_batch_serial, A_batch_serial, B_batch_serial,
+          is_valid_batch_serial] =
+        q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
     // is_valid.
     CompareIsValid(is_valid_batch_parallel, is_valid_batch_serial);
 
@@ -198,17 +207,24 @@ TEST_F(TestBatchQuasistaticSimulator, TestForwardDynamicsAllegroHand) {
     // B.
     EXPECT_EQ(B_batch_parallel.size(), 0);
     EXPECT_EQ(B_batch_serial.size(), 0);
+
+    // A.
+    EXPECT_EQ(A_batch_parallel.size(), 0);
+    EXPECT_EQ(B_batch_serial.size(), 0);
+    i++;
   }
 }
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
   SetUpPlanarHand();
-  sim_params_.gradient_mode = GradientMode::kBOnly;
+  sim_params_.gradient_mode = GradientMode::kAB;
 
-  auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
+  auto [x_next_batch_parallel, A_batch_parallel, B_batch_parallel,
+        is_valid_batch_parallel] =
       q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
-  auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
+  auto [x_next_batch_serial, A_batch_serial, B_batch_serial,
+        is_valid_batch_serial] =
       q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
 
   // is_valid.
@@ -218,17 +234,22 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
   CompareXNext(x_next_batch_parallel, x_next_batch_serial);
 
   // B.
-  CompareB(B_batch_parallel, B_batch_serial, 1e-6);
+  CompareMatrices(B_batch_parallel, B_batch_serial, 1e-6);
+
+  // A.
+  CompareMatrices(A_batch_parallel, A_batch_serial, 1e-5);
 }
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   SetUpAllegroHand();
-  sim_params_.gradient_mode = GradientMode::kBOnly;
+  sim_params_.gradient_mode = GradientMode::kAB;
 
-  auto [x_next_batch_parallel, B_batch_parallel, is_valid_batch_parallel] =
+  auto [x_next_batch_parallel, A_batch_parallel, B_batch_parallel,
+        is_valid_batch_parallel] =
       q_sim_batch_->CalcDynamicsParallel(x_batch_, u_batch_, sim_params_);
 
-  auto [x_next_batch_serial, B_batch_serial, is_valid_batch_serial] =
+  auto [x_next_batch_serial, A_batch_serial, B_batch_serial,
+        is_valid_batch_serial] =
       q_sim_batch_->CalcDynamicsSerial(x_batch_, u_batch_, sim_params_);
 
   // is_valid.
@@ -238,7 +259,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
   CompareXNext(x_next_batch_parallel, x_next_batch_serial);
 
   // B.
-  CompareB(B_batch_parallel, B_batch_serial, 1e-5);
+  CompareMatrices(B_batch_parallel, B_batch_serial, 1e-5);
+
+  // A.
+  CompareMatrices(A_batch_parallel, A_batch_serial, 1e-5);
 }
 
 /*
@@ -265,8 +289,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
   x_trj.rowwise() = x_batch_.row(0);
   u_trj.rowwise() = u_batch_.row(0);
 
-  auto B_bundled1 = q_sim_batch_->CalcBundledBTrjScalarStd(
-      x_trj, u_trj, 0.1, sim_params_, n_samples, seed);
+  sim_params_.gradient_mode = GradientMode::kBOnly;
+  auto [A_bundled1, B_bundled1, c_bundled1] =
+      q_sim_batch_->CalcBundledABcTrjScalarStd(x_trj, u_trj, 0.1, sim_params_,
+                                               n_samples, seed);
   auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(
       x_trj, u_trj, 0.1, sim_params_, n_samples, seed);
   for (int i = 0; i < T; i++) {

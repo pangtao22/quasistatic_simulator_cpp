@@ -53,40 +53,47 @@ Eigen::MatrixXd BatchQuasistaticSimulator::CalcBundledB(
   return B_bundled;
 }
 
-std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>, std::vector<bool>>
+std::tuple<bool, bool> IsABNeeded(GradientMode gm) {
+  bool calc_A = gm == GradientMode::kAB;
+  bool calc_B = calc_A or gm == GradientMode::kBOnly;
+  return {calc_A, calc_B};
+}
+
+std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>,
+           std::vector<Eigen::MatrixXd>, std::vector<bool>>
 BatchQuasistaticSimulator::CalcDynamicsSerial(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
     const QuasistaticSimParameters &sim_params) const {
-  DRAKE_THROW_UNLESS(sim_params.gradient_mode != GradientMode::kAB);
+  const auto& [calc_A, calc_B] = IsABNeeded(sim_params.gradient_mode);
 
   auto &q_sim = get_q_sim();
   const size_t n_tasks = x_batch.rows();
   DRAKE_THROW_UNLESS(n_tasks == u_batch.rows());
   MatrixXd x_next_batch(x_batch);
+  std::vector<MatrixXd> A_batch;
   std::vector<MatrixXd> B_batch;
   std::vector<bool> is_valid_batch(n_tasks);
   const auto n_q = x_batch.cols();
   const auto n_u = u_batch.cols();
 
   for (int i = 0; i < n_tasks; i++) {
-    if (sim_params.gradient_mode == GradientMode::kBOnly) {
-      B_batch.emplace_back(MatrixXd::Zero(n_q, n_u));
-    }
     try {
       x_next_batch.row(i) = QuasistaticSimulator::CalcDynamics(
           &q_sim, x_batch.row(i), u_batch.row(i), sim_params);
-      if (sim_params.gradient_mode == GradientMode::kBOnly) {
-        B_batch.back() = q_sim.get_Dq_nextDqa_cmd();
+      if (calc_B) {
+        B_batch.emplace_back(q_sim.get_Dq_nextDqa_cmd());
       }
-
+      if (calc_A) {
+        A_batch.emplace_back(q_sim.get_Dq_nextDq());
+      }
       is_valid_batch[i] = true;
     } catch (std::runtime_error &err) {
       is_valid_batch[i] = false;
     }
   }
 
-  return {x_next_batch, B_batch, is_valid_batch};
+  return {x_next_batch, A_batch, B_batch, is_valid_batch};
 }
 
 std::vector<size_t>
@@ -110,11 +117,6 @@ std::vector<T> AssembleListsOfVectors(std::list<std::vector<T>> &list_of_vec) {
                  std::make_move_iterator(iter->end()));
   }
   return batch;
-}
-
-std::tuple<bool, bool> IsABNeeded(GradientMode gm) {
-  bool calc_A = gm == GradientMode::kAB;
-  bool calc_B = calc_A or gm == GradientMode::kBOnly;
 }
 
 std::tuple<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>,

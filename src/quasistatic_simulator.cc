@@ -936,29 +936,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDu(
   }
 
   // 3D systems.
-  MatrixXd Dq_dot_nextDqa_cmd(n_q_, n_v_a_);
-  for (const auto &model : models_all_) {
-    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
-        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
-    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
-        position_indices_.at(model).data(), position_indices_.at(model).size());
-
-    if (is_3d_floating_.at(model)) {
-      // If q contains a quaternion.
-      const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
-
-      // Rotation.
-      Dq_dot_nextDqa_cmd(idx_q_model.head(4), Eigen::all) =
-          CalcE(Q_WB) * Dv_nextDqa_cmd(idx_v_model.head(3), Eigen::all);
-      // Translation.
-      Dq_dot_nextDqa_cmd(idx_q_model.tail(3), Eigen::all) =
-          Dv_nextDqa_cmd(idx_v_model.tail(3), Eigen::all);
-    } else {
-      Dq_dot_nextDqa_cmd(idx_q_model, Eigen::all) =
-          Dv_nextDqa_cmd(idx_v_model, Eigen::all);
-    }
-  }
-  return h * Dq_dot_nextDqa_cmd;
+  return h * ConvertVToQdot(q_dict, Dv_nextDqa_cmd);
 }
 
 /*
@@ -969,7 +947,7 @@ std::vector<std::vector<int>> CalcRelativeActiveIndicesList(
     const std::vector<int> &lambda_star_active_indices, const int n_d) {
   int i_c_current = -1;
   std::vector<std::vector<int>> relative_active_indices_list;
-  for(const auto i : lambda_star_active_indices) {
+  for (const auto i : lambda_star_active_indices) {
     const int i_c = i / n_d;
     if (i_c_current != i_c) {
       relative_active_indices_list.emplace_back();
@@ -992,13 +970,12 @@ std::vector<std::vector<int>> CalcRelativeActiveIndicesList(
  *  relative_active_indices_list[i] stores the indices of its active rows,
  *  ranging from 0 to n_d - 1.
  *
- * This function returns DGactiveDq, a list of n_q matrices, where DGactiveDq[i]
- *  of shape (n_lambda_active, n_v) is the partial derivative of q[i] w.r.t
- *  G_active.
+ * This function returns DG_active_vecDq, a matrix of shape
+ *  (n_lambda_active * n_v, n_q).
  *
  * Note that G_active = -J_active!!!
  */
-std::vector<MatrixXd> CalcDGactiveDqFromJActiveList(
+MatrixXd CalcDGactiveDqFromJActiveList(
     const std::vector<MatrixX<AutoDiffXd>> &J_active_ad_list,
     const std::vector<std::vector<int>> *relative_active_indices_list) {
   int n_la; // Total number of active rows in G_active.
@@ -1012,32 +989,33 @@ std::vector<MatrixXd> CalcDGactiveDqFromJActiveList(
   }
   const auto n_v = J_active_ad_list.front().cols();
   const auto n_q = J_active_ad_list.front()(0, 0).derivatives().size();
+  std::vector<int> row_indices_all;
+  std::iota(row_indices_all.begin(), row_indices_all.end(), 0);
 
-  vector<MatrixXd> DGactiveDq;
+  MatrixXd DvecG_activeDq(n_la * n_v, n_q);
   for (int i_q = 0; i_q < n_q; i_q++) {
-    DGactiveDq.emplace_back(n_la, n_v);
+    // Fill one column of DvecG_activeDq.
+    int i_G = 0; // row index into DvecG_activeDq.
+    for (int j = 0; j < n_v; j++) {
+      for (int i_c = 0; i_c < J_active_ad_list.size(); i_c++) {
+        const auto &J_i = J_active_ad_list[i_c];
 
-    int i_G_active = 0;
-    for (int i_c = 0; i_c < J_active_ad_list.size(); i_c++) {
-      const auto &J_i = J_active_ad_list[i_c];
-
-      std::vector<int> row_indices;
-      if (relative_active_indices_list) {
-        row_indices = relative_active_indices_list->at(i_c);
-      } else {
-        row_indices.resize(J_i.rows());
-        std::iota(row_indices.begin(), row_indices.end(), 0);
-      }
-
-      for (const auto &i : row_indices) {
-        for (int j = 0; j < n_v; j++) {
-          DGactiveDq.back()(i_G_active, j) = -J_i(i, j).derivatives()[i_q];
+        // Find indices of active rows of the current J_i.
+        const std::vector<int> *row_indices{nullptr};
+        if (relative_active_indices_list) {
+          row_indices = &(relative_active_indices_list->at(i_c));
+        } else {
+          row_indices = &row_indices_all;
         }
-        i_G_active += 1;
+
+        for (const auto &i : *row_indices) {
+          DvecG_activeDq(i_G, i_q) = -J_i(i, j).derivatives()[i_q];
+          i_G += 1;
+        }
       }
     }
   }
-  return DGactiveDq;
+  return DvecG_activeDq;
 }
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
@@ -1052,20 +1030,23 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
 
   /*----------------------------------------------------------------*/
   // e := phi_constraints / h.
-  MatrixXd De_active_Dq(n_la, n_v_);
+  MatrixXd De_active_Dq(n_la, n_q_);
   std::set<int> active_contact_indices;
   for (int i = 0; i < n_la; i++) {
     const int i_c = lambda_star_active_indices[i] / n_d;
+    // TODO: Jn is w.r.t. v, not q_dot. FUCK!
     De_active_Dq.row(i) = Jn.row(i_c) / h;
     active_contact_indices.insert(i_c);
   }
 
   /*----------------------------------------------------------------*/
-  MatrixXd DbDq = MatrixXd::Zero(n_v_, n_v_);
+  MatrixXd DbDq = MatrixXd::Zero(n_v_, n_q_);
   for (const auto &model : models_actuated_) {
     const auto &idx_v = velocity_indices_.at(model);
+    const auto &idx_q = position_indices_.at(model);
     const auto &Kq_i = robot_stiffness_.at(model);
-    DbDq(idx_v, idx_v).diagonal() = h * Kq_i;
+    // TODO: This needs double check!
+    DbDq(idx_q, idx_v).diagonal() = h * Kq_i;
   }
 
   /*----------------------------------------------------------------*/
@@ -1091,24 +1072,17 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
 
     const auto relative_active_indices_list =
         CalcRelativeActiveIndicesList(lambda_star_active_indices, n_d);
-    const auto DGactiveDq = CalcDGactiveDqFromJActiveList(
+    const auto DvecG_activeDq = CalcDGactiveDqFromJActiveList(
         J_active_ad_list, &relative_active_indices_list);
 
-    for (int i_v = 0; i_v < n_v_; i_v++) {
-      MatrixXd Dv_next_i_vDGactive(n_la, n_q_);
-      for (int i = 0; i < n_la; i++) {
-        for (int j = 0; j < n_q_; j++) {
-          Dv_next_i_vDGactive(i, j) = Dv_nextDvecG_active(i_v, n_la * j + i);
-        }
-      }
-      for (int i_q = 0; i_q < n_q_; i_q++) {
-        Dv_nextDq(i_v, i_q) +=
-            (Dv_next_i_vDGactive.array() * DGactiveDq[i_q].array()).sum();
-      }
-    }
+    Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
   }
 
-  return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
+  if (n_v_ == n_q_) {
+    return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
+  }
+
+  return MatrixXd::Identity(n_q_, n_q_) + h * ConvertVToQdot(q_dict, Dv_nextDq);
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -1163,6 +1137,34 @@ QuasistaticSimulator::CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   E.row(3) << Q[2], -Q[1], Q[0];
   E *= 0.5;
   return E;
+}
+
+Eigen::MatrixXd QuasistaticSimulator::ConvertVToQdot(
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const {
+  MatrixXd M_qdot(n_q_, M_v.cols());
+  for (const auto &model : models_all_) {
+    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
+        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
+    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
+        position_indices_.at(model).data(), position_indices_.at(model).size());
+
+    if (is_3d_floating_.at(model)) {
+      // If q contains a quaternion.
+      const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
+
+      // Rotation.
+      M_qdot(idx_q_model.head(4), Eigen::all) =
+          CalcE(Q_WB) * M_v(idx_v_model.head(3), Eigen::all);
+      // Translation.
+      M_qdot(idx_q_model.tail(3), Eigen::all) =
+          M_v(idx_v_model.tail(3), Eigen::all);
+    } else {
+      M_qdot(idx_q_model, Eigen::all) = M_v(idx_v_model, Eigen::all);
+    }
+  }
+
+  return M_qdot;
 }
 
 std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
@@ -1283,10 +1285,12 @@ void QuasistaticSimulator::UpdateQdictFromV(
     }
   }
 }
-VectorXd QuasistaticSimulator::CalcDynamics(
-    QuasistaticSimulator *q_sim, const Eigen::Ref<const VectorXd> &q,
-    const Eigen::Ref<const VectorXd> &u,
-    const QuasistaticSimParameters &sim_params) {
+
+VectorXd
+QuasistaticSimulator::CalcDynamics(QuasistaticSimulator *q_sim,
+                                   const Eigen::Ref<const VectorXd> &q,
+                                   const Eigen::Ref<const VectorXd> &u,
+                                   const QuasistaticSimParameters &sim_params) {
   q_sim->UpdateMbpPositions(q);
   auto tau_ext_dict = q_sim->CalcTauExt({});
   auto q_a_cmd_dict = q_sim->GetQaCmdDictFromVec(u);
