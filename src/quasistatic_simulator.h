@@ -156,6 +156,15 @@ public:
                const Eigen::Ref<const Eigen::VectorXd> &u,
                const QuasistaticSimParameters &sim_params);
 
+  /*
+   * Wrapper around QuasistaticSimulator::Step, which takes as inputs state
+   * and input vectors, and returns the next state as a vector.
+   */
+  Eigen::VectorXd
+  CalcDynamics(const Eigen::Ref<const Eigen::VectorXd> &q,
+               const Eigen::Ref<const Eigen::VectorXd> &u,
+               const QuasistaticSimParameters &sim_params);
+
 private:
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,

@@ -74,6 +74,12 @@ PYBIND11_MODULE(qsim_cpp, m) {
             py::overload_cast<const ModelInstanceIndexToVecMap &,
                               const ModelInstanceIndexToVecMap &>(&Class::Step),
             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"))
+        .def("calc_dynamics",
+             py::overload_cast<const Eigen::Ref<const Eigen::VectorXd> &,
+                               const Eigen::Ref<const Eigen::VectorXd> &,
+                               const QuasistaticSimParameters &>(
+                 &Class::CalcDynamics),
+             py::arg("q"), py::arg("u"), py::arg("sim_params"))
         .def("calc_tau_ext", &Class::CalcTauExt)
         .def("get_model_instance_name_to_index_map",
              &Class::GetModelInstanceNameToIndexMap)

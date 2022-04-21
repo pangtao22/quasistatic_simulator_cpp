@@ -1298,3 +1298,10 @@ QuasistaticSimulator::CalcDynamics(QuasistaticSimulator *q_sim,
   q_sim->Step(q_a_cmd_dict, tau_ext_dict, sim_params);
   return q_sim->GetMbpPositionsAsVec();
 }
+
+VectorXd
+QuasistaticSimulator::CalcDynamics(const Eigen::Ref<const VectorXd> &q,
+                                   const Eigen::Ref<const VectorXd> &u,
+                                   const QuasistaticSimParameters &sim_params) {
+  return CalcDynamics(this, q, u, sim_params);
+}
