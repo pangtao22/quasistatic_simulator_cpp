@@ -44,43 +44,43 @@ target_link_libraries(contact_computer drake::drake)
 add_library(log_barrier_solver log_barrier_solver.h log_barrier_solver.cc)
 target_link_libraries(log_barrier_solver drake::drake)
 
-add_library(quasistatic_simulator quasistatic_simulator.h
-        quasistatic_simulator.cc)
+add_library(quasistatic_simulator
+        quasistatic_simulator.h
+        quasistatic_simulator.cc
+        batch_quasistatic_simulator.h
+        batch_quasistatic_simulator.cc
+        quasistatic_parser.h
+        quasistatic_parser.cc)
 target_link_libraries(quasistatic_simulator optimization_derivatives
-        drake::drake get_model_paths contact_computer log_barrier_solver)
-
-add_library(batch_quasistatic_simulator batch_quasistatic_simulator.h
-        batch_quasistatic_simulator.cc)
-target_link_libraries(batch_quasistatic_simulator quasistatic_simulator)
-
-add_library(quasistatic_parser quasistatic_parser.h quasistatic_parser.cc)
-target_link_libraries(quasistatic_parser batch_quasistatic_simulator yaml-cpp)
+        drake::drake get_model_paths contact_computer log_barrier_solver
+        yaml-cpp)
 
 pybind11_add_module(qsim_cpp MODULE qsim_cpp.cc)
-target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator
-        batch_quasistatic_simulator)
+target_link_libraries(qsim_cpp PUBLIC quasistatic_simulator)
 
 add_executable(run_planar_hand_ball run_planar_hand_ball.cc)
 target_link_libraries(run_planar_hand_ball quasistatic_simulator)
 
 add_executable(run_3link_arm_3d run_3link_arm_3d.cc)
-target_link_libraries(run_3link_arm_3d quasistatic_simulator
-        batch_quasistatic_simulator)
+target_link_libraries(run_3link_arm_3d quasistatic_simulator)
 
 add_executable(run_iiwa_box_stacking run_iiwa_box_stacking.cc)
 target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
 
 add_executable(run_allegro_hand run_allegro_hand.cc)
-target_link_libraries(run_allegro_hand quasistatic_parser)
+target_link_libraries(run_allegro_hand quasistatic_simulator)
 
 add_executable(test_batch_simulator test_batch_simulator.cc)
-target_link_libraries(test_batch_simulator quasistatic_parser gtest)
+target_link_libraries(test_batch_simulator quasistatic_simulator gtest)
 
 add_executable(test_log_barrier_solver test_log_barrier_solver.cc)
 target_link_libraries(test_log_barrier_solver log_barrier_solver gtest)
 
 add_executable(test_contact_forces test_contact_forces.cc)
-target_link_libraries(test_contact_forces quasistatic_parser gtest)
+target_link_libraries(test_contact_forces quasistatic_simulator gtest)
+
+add_executable(test_quasistatic_sim test_quasistatic_sim.cc)
+target_link_libraries(test_quasistatic_sim quasistatic_simulator gtest)
 
 add_test(NAME test_batch_simulator COMMAND test_batch_simulator)
 add_test(NAME test_log_barrier_solver COMMAND test_log_barrier_solver)
