@@ -15,13 +15,13 @@ using std::cout;
 using std::endl;
 using std::string;
 
-const string kQModelPath =
-    GetQsimModelsPath() / "q_sys" / "two_spheres_xyz.yml";
-auto parser = QuasistaticParser(kQModelPath);
-
 class TestContactForces : public ::testing::Test {
 protected:
   void SetUp() override {
+    const string kQModelPath =
+        GetQsimModelsPath() / "q_sys" / "two_spheres_xyz.yml";
+    auto parser = QuasistaticParser(kQModelPath);
+
     params_.h = 0.1;
     params_.gravity = Vector3d(0, 0, -10);
     params_.is_quasi_dynamic = true;

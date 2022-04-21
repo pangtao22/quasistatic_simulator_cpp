@@ -9,8 +9,11 @@
 class QuasistaticParser {
 public:
   explicit QuasistaticParser(const std::string &q_model_path);
-  void update_sim_params(QuasistaticSimParameters sim_params) {
+  void set_sim_params(QuasistaticSimParameters sim_params) {
     sim_params_ = std::move(sim_params);
+  };
+  const QuasistaticSimParameters &get_sim_params() const {
+    return sim_params_;
   };
   [[nodiscard]] std::unique_ptr<QuasistaticSimulator> MakeSimulator() const;
   [[nodiscard]] std::unique_ptr<BatchQuasistaticSimulator>

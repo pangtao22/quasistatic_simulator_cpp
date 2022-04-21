@@ -41,7 +41,7 @@ protected:
     sim_params_.contact_detection_tolerance = 1.0;
     sim_params_.is_quasi_dynamic = true;
 
-    parser.update_sim_params(sim_params_);
+    parser.set_sim_params(sim_params_);
     q_sim_batch_ = parser.MakeBatchSimulator();
 
     const string robot_l_name("arm_left");
@@ -75,7 +75,7 @@ protected:
     sim_params_.contact_detection_tolerance = 0.025;
     sim_params_.is_quasi_dynamic = true;
     sim_params_.log_barrier_weight = 100;
-    parser.update_sim_params(sim_params_);
+    parser.set_sim_params(sim_params_);
     q_sim_batch_ = parser.MakeBatchSimulator();
 
     auto &q_sim = q_sim_batch_->get_q_sim();
