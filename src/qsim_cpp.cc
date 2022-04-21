@@ -113,8 +113,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
         .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
-        .def("calc_bundled_B_trj", &Class::CalcBundledBTrj)
-        .def("calc_bundled_B_trj_direct", &Class::CalcBundledBTrjDirect)
+        .def("calc_bundled_ABc_trj", &Class::CalcBundledABcTrj)
         .def("sample_gaussian_matrix", &Class::SampleGaussianMatrix)
         .def("get_num_max_parallel_executions",
              &Class::get_num_max_parallel_executions)
