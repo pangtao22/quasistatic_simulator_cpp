@@ -2,6 +2,11 @@
 
 #include "quasistatic_simulator.h"
 
+void
+SetSmallNumbersToZero(Eigen::MatrixXd& A, const double threshold = 1e-13) {
+  A = (threshold < A.array().abs()).select(A, 0.);
+}
+
 Eigen::MatrixXd
 CalcDfDuNumerical(QuasistaticSimulator *q_sim,
                   const Eigen::Ref<const Eigen::VectorXd> &x_nominal,

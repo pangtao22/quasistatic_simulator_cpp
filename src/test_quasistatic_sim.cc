@@ -56,13 +56,17 @@ TEST_F(TestQuasistaticSim, TestDfDu) {
 
   q_sim_->CalcDynamics(q0_, u0_, params_);
   const auto B_analytic = q_sim_->get_Dq_nextDqa_cmd();
-  const auto A_analytic = q_sim_->get_Dq_nextDq();
+  auto A_analytic = q_sim_->get_Dq_nextDq();
+  SetSmallNumbersToZero(A_analytic);
   const auto B_numerical = CalcDfDuNumerical(
       q_sim_.get(), q0_, u0_, 5e-4, params_);
-  const auto A_numerical = CalcDfDxNumerical(
+  auto A_numerical = CalcDfDxNumerical(
       q_sim_.get(), q0_, u0_, 5e-4, params_);
+  SetSmallNumbersToZero(A_numerical, 1e-10);
 
-  cout << "Norm diff A " << (A_analytic - A_numerical).norm() << endl;
+  cout << "Norm diff A " << (A_analytic - A_numerical).norm();
+  cout << " A_numerical_norm " << A_numerical.norm();
+  cout << " A_analytic_norm " << A_analytic.norm() << endl;
   cout << "Norm diff B " << (B_analytic - B_numerical).norm() << endl;
 
   cout << "A_analytic\n" << A_analytic << endl;

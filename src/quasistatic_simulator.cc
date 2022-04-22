@@ -735,7 +735,8 @@ void QuasistaticSimulator::BackwardQp(
     const auto &Dv_nextDe = dqp_->get_DzDe();
     const auto &Dv_nextDb = dqp_->get_DzDb();
 
-    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, q_dict_next, h, Jn, n_d);
+    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, Jn, v_star, q_dict_next, h,
+                          n_d);
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
     return;
   }
@@ -1021,8 +1022,10 @@ MatrixXd CalcDGactiveDqFromJActiveList(
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
-    const ModelInstanceIndexToVecMap &q_dict, const double h,
-    const Eigen::Ref<const Eigen::MatrixXd> &Jn, const int n_d) const {
+    const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const ModelInstanceIndexToVecMap &q_dict, const double h, const size_t n_d)
+    const {
   // Compute Dv_nextDvecG from the KKT conditions of the QP.
   const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
       dqp_->get_DzDvecG_active();
@@ -1081,8 +1084,11 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
   }
 
-  return MatrixXd::Identity(n_q_, n_q_) +
-         h * ConvertRowVToQdot(q_dict, Dv_nextDq);
+  MatrixXd A = ConvertRowVToQdot(q_dict, Dv_nextDq);
+  AddDNDq2A(v_star, &A);
+  A *= h;
+  A.diagonal() += VectorXd::Ones(n_q_);
+  return A;
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -1157,15 +1163,26 @@ QuasistaticSimulator::CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q) {
   return E;
 }
 
+Eigen::Map<const Eigen::VectorXi> QuasistaticSimulator::GetIndicesAsVec(
+    const drake::multibody::ModelInstanceIndex &model,
+    ModelIndicesMode mode) const {
+  std::vector<int> const *indices{nullptr};
+  if (mode == ModelIndicesMode::kQ) {
+    indices = &position_indices_.at(model);
+  } else {
+    indices = &velocity_indices_.at(model);
+  }
+
+  return {indices->data(), static_cast<Eigen::Index>(indices->size())};
+}
+
 Eigen::MatrixXd QuasistaticSimulator::ConvertRowVToQdot(
     const ModelInstanceIndexToVecMap &q_dict,
     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const {
   MatrixXd M_qdot(n_q_, M_v.cols());
   for (const auto &model : models_all_) {
-    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
-        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
-    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
-        position_indices_.at(model).data(), position_indices_.at(model).size());
+    const auto idx_v_model = GetIndicesAsVec(model, ModelIndicesMode::kV);
+    const auto idx_q_model = GetIndicesAsVec(model, ModelIndicesMode::kQ);
 
     if (is_model_floating(model)) {
       // If q contains a quaternion.
@@ -1190,10 +1207,8 @@ Eigen::MatrixXd QuasistaticSimulator::ConvertColVToQdot(
     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const {
   MatrixXd M_qdot(M_v.rows(), n_q_);
   for (const auto &model : models_all_) {
-    const auto idx_v_model = Eigen::Map<const Eigen::VectorXi>(
-        velocity_indices_.at(model).data(), velocity_indices_.at(model).size());
-    const auto idx_q_model = Eigen::Map<const Eigen::VectorXi>(
-        position_indices_.at(model).data(), position_indices_.at(model).size());
+    const auto idx_v_model = GetIndicesAsVec(model, ModelIndicesMode::kV);
+    const auto idx_q_model = GetIndicesAsVec(model, ModelIndicesMode::kQ);
 
     if (is_model_floating(model)) {
       const Eigen::Vector4d &Q_WB = q_dict.at(model).head(4);
@@ -1211,6 +1226,27 @@ Eigen::MatrixXd QuasistaticSimulator::ConvertColVToQdot(
   }
 
   return M_qdot;
+}
+
+void QuasistaticSimulator::AddDNDq2A(
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    drake::EigenPtr<Eigen::MatrixXd> A_ptr) const {
+  Eigen::Matrix4d E;
+  for (const auto &model : models_unactuated_) {
+    if (not is_model_floating(model)) {
+      continue;
+    }
+    const auto idx_v_model = GetIndicesAsVec(model, ModelIndicesMode::kV);
+    const auto idx_q_model = GetIndicesAsVec(model, ModelIndicesMode::kQ);
+    const Vector3d& w = v_star(idx_v_model.head(3));  // angular velocity.
+
+    E.row(0) << 0, -w[0], -w[1], -w[2];
+    E.row(1) << w[0], 0, -w[2], w[1];
+    E.row(2) << w[1], w[2], 0, -w[0];
+    E.row(3) << w[2], -w[1], w[0], 0;
+
+    (*A_ptr)(idx_q_model.head(4), idx_q_model.head(4)) += E;
+  }
 }
 
 std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>

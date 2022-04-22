@@ -173,12 +173,6 @@ public:
                                const Eigen::Ref<const Eigen::VectorXd> &u,
                                const QuasistaticSimParameters &sim_params);
 
-  static Eigen::Matrix<double, 4, 3>
-  CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
-
-  static Eigen::Matrix<double, 3, 4>
-  CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q);
-
   Eigen::MatrixXd
   ConvertRowVToQdot(const ModelInstanceIndexToVecMap &q_dict,
                     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
@@ -188,6 +182,20 @@ public:
                     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
 
 private:
+  static Eigen::Matrix<double, 4, 3>
+  CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  static Eigen::Matrix<double, 3, 4>
+  CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  Eigen::Map<const Eigen::VectorXi> GetIndicesAsVec(
+      const drake::multibody::ModelInstanceIndex &model,
+      ModelIndicesMode mode) const;
+
+  void AddDNDq2A(
+      const Eigen::Ref<const Eigen::VectorXd> &v_star,
+      drake::EigenPtr<Eigen::MatrixXd> A_ptr) const;
+
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
                      ModelIndicesMode mode) const;
@@ -204,10 +212,10 @@ private:
                            const ModelInstanceIndexToVecMap &q_dict) const;
   Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
                            const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
-                           const ModelInstanceIndexToVecMap &q_dict,
-                           const double h,
                            const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-                           const int n_d) const;
+                           const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                           const ModelInstanceIndexToVecMap &q_dict,
+                           const double h, const size_t n_d) const;
 
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,
