@@ -121,6 +121,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
         .def("calc_bundled_ABc_trj", &Class::CalcBundledABcTrj)
         .def("sample_gaussian_matrix", &Class::SampleGaussianMatrix)
+        .def("calc_Bc_lstsq", &Class::CalcBcLstsq)
         .def("get_num_max_parallel_executions",
              &Class::get_num_max_parallel_executions)
         .def("set_num_max_parallel_executions",
