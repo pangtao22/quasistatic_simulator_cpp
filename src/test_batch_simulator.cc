@@ -237,7 +237,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientPlanarHand) {
   CompareMatrices(B_batch_parallel, B_batch_serial, 1e-6);
 
   // A.
-  CompareMatrices(A_batch_parallel, A_batch_serial, 1e-5);
+  CompareMatrices(A_batch_parallel, A_batch_serial, 2e-5);
 }
 
 TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
@@ -271,7 +271,7 @@ TEST_F(TestBatchQuasistaticSimulator, TestGradientAllegroHand) {
  * The goal is to ensure that the outcomes of these two functions are the
  * same given the same seed for the random number generator.
  */
-TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
+TEST_F(TestBatchQuasistaticSimulator, TestBundledBTrj) {
   SetUpPlanarHand();
 
   const int T = 50;
@@ -291,10 +291,10 @@ TEST_F(TestBatchQuasistaticSimulator, TestBundledB) {
 
   sim_params_.gradient_mode = GradientMode::kBOnly;
   auto [A_bundled1, B_bundled1, c_bundled1] =
-      q_sim_batch_->CalcBundledABcTrjScalarStd(x_trj, u_trj, 0.1, sim_params_,
-                                               n_samples, seed);
+      q_sim_batch_->CalcBundledABcTrjScalarStd(x_trj.topRows(T), u_trj, 0.1,
+                                               sim_params_, n_samples, seed);
   auto B_bundled2 = q_sim_batch_->CalcBundledBTrjDirect(
-      x_trj, u_trj, 0.1, sim_params_, n_samples, seed);
+      x_trj.topRows(T), u_trj, 0.1, sim_params_, n_samples, seed);
   for (int i = 0; i < T; i++) {
     double err = (B_bundled1[i] - B_bundled2[i]).norm();
     EXPECT_LT(err, 1e-10);

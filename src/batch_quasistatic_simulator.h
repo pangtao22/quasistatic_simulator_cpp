@@ -42,7 +42,19 @@ public:
                      const QuasistaticSimParameters &sim_params) const;
 
   /*
-   * x_trj: (T + 1, dim_x)
+   * Minimizes the least square error of
+   * x_next_batch - x_next_batch_mean = (u_batch - u_nominal) * B.transpose().
+   */
+  std::tuple<Eigen::MatrixXd, Eigen::VectorXd>
+  CalcBcLstsq(
+      const Eigen::Ref<const Eigen::VectorXd> &x_nominal,
+      const Eigen::Ref<const Eigen::VectorXd> &u_nominal,
+      QuasistaticSimParameters sim_params,
+      const Eigen::Ref<const Eigen::VectorXd> &u_std,
+      int n_samples) const;
+
+  /*
+   * x_trj: (T, dim_x)
    * u_trj: (T, dim_u)
    *
    * In the tuple: (A_list of length T or 0,
@@ -109,6 +121,8 @@ private:
 
   std::stack<int> InitializeSimulatorStack() const;
   size_t num_max_parallel_executions{0};
+
+  std::unique_ptr<drake::solvers::GurobiSolver> solver_;
 
   mutable std::vector<QuasistaticSimulator> q_sims_;
   mutable std::mt19937 gen_;

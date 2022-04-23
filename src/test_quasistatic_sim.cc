@@ -2,9 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include "finite_differencing_gradient.h"
 #include "get_model_paths.h"
 #include "quasistatic_parser.h"
-#include "numerical_dynamics_gradients.h"
 
 using drake::multibody::ModelInstanceIndex;
 using Eigen::MatrixXd;
@@ -15,6 +15,10 @@ using std::cout;
 using std::endl;
 using std::string;
 
+void SetSmallNumbersToZero(Eigen::MatrixXd &A, const double threshold = 1e-13) {
+  A = (threshold < A.array().abs()).select(A, 0.);
+}
+
 class TestQuasistaticSim : public ::testing::Test {
 protected:
   void SetUp() override {
@@ -23,6 +27,7 @@ protected:
     auto parser = QuasistaticParser(kQModelPath);
 
     q_sim_ = parser.MakeSimulator();
+    q_sim_b_ = parser.MakeBatchSimulator();
 
     params_ = parser.get_sim_params();
     params_.h = 0.1;
@@ -47,6 +52,7 @@ protected:
 
   QuasistaticSimParameters params_;
   std::unique_ptr<QuasistaticSimulator> q_sim_;
+  std::unique_ptr<BatchQuasistaticSimulator> q_sim_b_;
   VectorXd q0_, u0_;
 };
 
@@ -58,19 +64,27 @@ TEST_F(TestQuasistaticSim, TestDfDu) {
   const auto B_analytic = q_sim_->get_Dq_nextDqa_cmd();
   auto A_analytic = q_sim_->get_Dq_nextDq();
   SetSmallNumbersToZero(A_analytic);
-  const auto B_numerical = CalcDfDuNumerical(
-      q_sim_.get(), q0_, u0_, 5e-4, params_);
-  auto A_numerical = CalcDfDxNumerical(
-      q_sim_.get(), q0_, u0_, 5e-4, params_);
+
+  auto fd = FiniteDiffGradientCalculator(*q_sim_);
+
+  const auto B_numerical = fd.CalcB(q0_, u0_, 5e-4, params_);
+  auto A_numerical = fd.CalcA(q0_, u0_, 5e-4, params_);
   SetSmallNumbersToZero(A_numerical, 1e-10);
+
+  const auto &[B_zero, c_zero] = q_sim_b_->CalcBcLstsq(
+      q0_, u0_, params_, Eigen::VectorXd::Constant(u0_.size(), 0.1), 1000);
 
   cout << "Norm diff A " << (A_analytic - A_numerical).norm();
   cout << " A_numerical_norm " << A_numerical.norm();
   cout << " A_analytic_norm " << A_analytic.norm() << endl;
-  cout << "Norm diff B " << (B_analytic - B_numerical).norm() << endl;
-
   cout << "A_analytic\n" << A_analytic << endl;
   cout << "A_numerical\n" << A_numerical << endl;
+
+  cout << "B_analytic\n" << B_analytic << endl;
+  cout << "B_zero\n" << B_zero << endl;
+  cout << "Norm diff B " << (B_analytic - B_zero).norm() << endl;
+
+
 }
 
 int main(int argc, char **argv) {

@@ -50,7 +50,9 @@ add_library(quasistatic_simulator
         batch_quasistatic_simulator.h
         batch_quasistatic_simulator.cc
         quasistatic_parser.h
-        quasistatic_parser.cc numerical_dynamics_gradients.h)
+        quasistatic_parser.cc
+        finite_differencing_gradient.h
+        finite_differencing_gradient.cc)
 target_link_libraries(quasistatic_simulator optimization_derivatives
         drake::drake get_model_paths contact_computer log_barrier_solver
         yaml-cpp)

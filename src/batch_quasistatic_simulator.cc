@@ -16,7 +16,8 @@ BatchQuasistaticSimulator::BatchQuasistaticSimulator(
     const std::unordered_map<std::string, Eigen::VectorXd> &robot_stiffness_str,
     const std::unordered_map<std::string, std::string> &object_sdf_paths,
     const QuasistaticSimParameters &sim_params)
-    : num_max_parallel_executions(std::thread::hardware_concurrency()) {
+    : num_max_parallel_executions(std::thread::hardware_concurrency()),
+      solver_(std::make_unique<drake::solvers::GurobiSolver>()) {
   std::random_device rd;
   gen_.seed(rd());
 
@@ -65,7 +66,7 @@ BatchQuasistaticSimulator::CalcDynamicsSerial(
     const Eigen::Ref<const Eigen::MatrixXd> &x_batch,
     const Eigen::Ref<const Eigen::MatrixXd> &u_batch,
     const QuasistaticSimParameters &sim_params) const {
-  const auto& [calc_A, calc_B] = IsABNeeded(sim_params.gradient_mode);
+  const auto &[calc_A, calc_B] = IsABNeeded(sim_params.gradient_mode);
 
   auto &q_sim = get_q_sim();
   const size_t n_tasks = x_batch.rows();
@@ -302,7 +303,7 @@ BatchQuasistaticSimulator::CalcBundledABcTrj(
   }
 
   const int T = u_trj.rows();
-  DRAKE_ASSERT(x_trj.rows() == T + 1);
+  DRAKE_ASSERT(x_trj.rows() == T);
 
   const int n_x = x_trj.cols();
   const int n_u = u_trj.cols();
@@ -378,7 +379,7 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
 
   // Determine the number of threads.
   const size_t T = u_trj.rows();
-  DRAKE_THROW_UNLESS(x_trj.rows() == T + 1);
+  DRAKE_THROW_UNLESS(x_trj.rows() == T);
   const auto n_threads = std::min(num_max_parallel_executions, T);
 
   // Allocate storage for results.
@@ -439,4 +440,61 @@ std::vector<Eigen::MatrixXd> BatchQuasistaticSimulator::CalcBundledBTrjDirect(
   }
 
   return B_batch;
+}
+
+std::tuple<Eigen::MatrixXd, Eigen::VectorXd>
+BatchQuasistaticSimulator::CalcBcLstsq(
+    const Eigen::Ref<const Eigen::VectorXd> &x_nominal,
+    const Eigen::Ref<const Eigen::VectorXd> &u_nominal,
+    QuasistaticSimParameters sim_params,
+    const Eigen::Ref<const Eigen::VectorXd> &u_std, int n_samples) const {
+  const auto n_x = x_nominal.size();
+  const auto n_u = u_nominal.size();
+  MatrixXd x_batch(n_samples, n_x);
+  x_batch.rowwise() = x_nominal.transpose();
+  const auto u_batch = SampleGaussianMatrix(n_samples, u_nominal, u_std);
+  sim_params.gradient_mode = GradientMode::kNone;
+  auto [x_next_batch, A_Batch, B_batch, is_valid_batch] =
+      CalcDynamicsParallel(x_batch, u_batch, sim_params);
+
+  // Extract valid samples.
+  const auto n_valid =
+      std::accumulate(is_valid_batch.begin(), is_valid_batch.end(), 0);
+  if (n_valid == 0) {
+    throw std::runtime_error("No valid dynamics samples.");
+  }
+
+  VectorXd x_next_mean(n_x);
+  x_next_mean.setZero();
+  std::vector<int> idx_valid;
+  for (int i = 0; i < n_samples; i++) {
+    if (not is_valid_batch[i]) {
+      continue;
+    }
+    x_next_mean += x_next_batch.row(i) / n_valid;
+    idx_valid.push_back(i);
+  }
+
+  // Data centering.
+  MatrixXd dx = x_next_batch(idx_valid, Eigen::all).rowwise() - x_next_mean
+      .transpose();
+  MatrixXd du = u_batch(idx_valid, Eigen::all).rowwise() - u_nominal
+      .transpose();
+
+  auto prog = drake::solvers::MathematicalProgram();
+  auto B = prog.NewContinuousVariables(n_x, n_u, "B");
+
+  // Column-wise costs.
+  for (int j = 0; j < n_u; j++) {
+    prog.Add2NormSquaredCost(du, dx.col(j), B.transpose().col(j));
+  }
+
+  auto result = drake::solvers::MathematicalProgramResult();
+  solver_->Solve(prog, {}, {}, &result);
+
+  if (not result.is_success()) {
+    throw std::runtime_error("Failed to solve for B using Least squares.");
+  }
+
+  return {result.GetSolution(B), x_next_mean};
 }
