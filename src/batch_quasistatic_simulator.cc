@@ -314,10 +314,8 @@ BatchQuasistaticSimulator::CalcBundledABcTrj(
   for (int t = 0; t < T; t++) {
     int i_start = t * n_samples;
     auto u_batch_t = SampleGaussianMatrix(n_samples, u_trj.row(t), std_u);
-    for (int i = 0; i < n_samples; i++) {
-      x_batch.row(i_start + i) = x_trj.row(t);
-      u_batch.row(i_start + i) = u_batch_t.row(i);
-    }
+    x_batch(Eigen::seqN(i_start, n_samples), Eigen::all).rowwise() = x_trj.row(t);
+    u_batch(Eigen::seqN(i_start, n_samples), Eigen::all) = u_batch_t;
   }
 
   auto [x_next_batch, A_batch, B_batch, is_valid_batch] =
