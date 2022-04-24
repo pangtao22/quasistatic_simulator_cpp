@@ -106,7 +106,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_q_dict_from_vec", &Class::GetQDictFromVec)
         .def("get_q_vec_from_dict", &Class::GetQVecFromDict)
         .def("get_q_a_cmd_vec_from_dict", &Class::GetQaCmdVecFromDict)
-        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec);
+        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec)
+        .def("get_q_a_indices_into_q", &Class::GetQaIndicesIntoQ)
+        .def("get_q_u_indices_into_q", &Class::GetQuIndicesIntoQ);
   }
 
   {

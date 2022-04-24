@@ -735,8 +735,8 @@ void QuasistaticSimulator::BackwardQp(
     const auto &Dv_nextDe = dqp_->get_DzDe();
     const auto &Dv_nextDb = dqp_->get_DzDb();
 
-    Dq_nextDq_ = CalcDfDx(Dv_nextDb, Dv_nextDe, Jn, v_star, q_dict_next, h,
-                          n_d);
+    Dq_nextDq_ =
+        CalcDfDx(Dv_nextDb, Dv_nextDe, Jn, v_star, q_dict_next, h, n_d);
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
     return;
   }
@@ -904,6 +904,32 @@ ModelInstanceIndexToVecMap QuasistaticSimulator::GetQaCmdDictFromVec(
   return q_a_cmd_dict;
 }
 
+Eigen::VectorXi QuasistaticSimulator::GetModelsIndicesIntoQ(
+    const std::set<drake::multibody::ModelInstanceIndex> &models) const {
+  const int n = std::accumulate(models.begin(), models.end(), 0,
+                                [&position_indices = position_indices_](
+                                    int n, const ModelInstanceIndex &model) {
+                                  return n + position_indices.at(model).size();
+                                });
+  Eigen::VectorXi models_indices(n);
+  Eigen::Index i_start = 0;
+  for (const auto &model : models) {
+    const auto &indices = position_indices_.at(model);
+    const auto n_model = indices.size();
+    models_indices(Eigen::seqN(i_start, n_model)) =
+        Eigen::Map<const Eigen::VectorXi>(indices.data(), n_model);
+  }
+  return models_indices;
+}
+
+Eigen::VectorXi QuasistaticSimulator::GetQaIndicesIntoQ() const {
+  return GetModelsIndicesIntoQ(models_actuated_);
+}
+
+Eigen::VectorXi QuasistaticSimulator::GetQuIndicesIntoQ() const {
+  return GetModelsIndicesIntoQ(models_unactuated_);
+}
+
 void QuasistaticSimulator::Step(
     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     const ModelInstanceIndexToVecMap &tau_ext_dict) {
@@ -1024,8 +1050,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
     const Eigen::Ref<const Eigen::MatrixXd> &Jn,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const ModelInstanceIndexToVecMap &q_dict, const double h, const size_t n_d)
-    const {
+    const ModelInstanceIndexToVecMap &q_dict, const double h,
+    const size_t n_d) const {
   // Compute Dv_nextDvecG from the KKT conditions of the QP.
   const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
       dqp_->get_DzDvecG_active();
@@ -1238,7 +1264,7 @@ void QuasistaticSimulator::AddDNDq2A(
     }
     const auto idx_v_model = GetIndicesAsVec(model, ModelIndicesMode::kV);
     const auto idx_q_model = GetIndicesAsVec(model, ModelIndicesMode::kQ);
-    const Vector3d& w = v_star(idx_v_model.head(3));  // angular velocity.
+    const Vector3d &w = v_star(idx_v_model.head(3)); // angular velocity.
 
     E.row(0) << 0, -w[0], -w[1], -w[2];
     E.row(1) << w[0], 0, -w[2], w[1];

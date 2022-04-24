@@ -159,6 +159,12 @@ public:
   ModelInstanceIndexToVecMap
   GetQaCmdDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
 
+  Eigen::VectorXi GetQaIndicesIntoQ() const;
+  Eigen::VectorXi GetQuIndicesIntoQ() const;
+  Eigen::VectorXi GetModelsIndicesIntoQ(
+      const std::set<drake::multibody::ModelInstanceIndex> & models
+      ) const;
+
   static Eigen::VectorXd
   CalcDynamics(QuasistaticSimulator *q_sim,
                const Eigen::Ref<const Eigen::VectorXd> &q,
