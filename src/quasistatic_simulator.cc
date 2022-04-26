@@ -461,7 +461,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
     if (fm == ForwardDynamicsMode::kLogIcecream) {
       ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
-      BackwardLogIcecream(q_dict_next, params,
+      BackwardLogIcecream(q_dict_next, v_star, params,
                           solver_log_icecream_->get_H_llt());
       return;
     }
@@ -736,7 +736,7 @@ void QuasistaticSimulator::BackwardQp(
     const auto &Dv_nextDb = dqp_->get_DzDb();
 
     Dq_nextDq_ =
-        CalcDfDx(Dv_nextDb, Dv_nextDe, Jn, v_star, q_dict_next, h, n_d);
+        CalcDfDxQp(Dv_nextDb, Dv_nextDe, Jn, v_star, q_dict_next, h, n_d);
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, h, q_dict_next);
     return;
   }
@@ -819,6 +819,7 @@ void QuasistaticSimulator::BackwardLogPyramid(
 
 void QuasistaticSimulator::BackwardLogIcecream(
     const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const QuasistaticSimParameters &params,
     const Eigen::LLT<Eigen::MatrixXd> &H_llt) {
   if (params.gradient_mode == GradientMode::kNone) {
@@ -828,6 +829,13 @@ void QuasistaticSimulator::BackwardLogIcecream(
   if (params.gradient_mode == GradientMode::kBOnly) {
     CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+    return;
+  }
+
+  if (params.gradient_mode == GradientMode::kAB) {
+    CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    Dq_nextDq_ = CalcDfDxLogIcecream(v_star, q_dict, params.h,
+                                     params.log_barrier_weight, H_llt);
     return;
   }
 
@@ -1045,13 +1053,17 @@ MatrixXd CalcDGactiveDqFromJActiveList(
   return DvecG_activeDq;
 }
 
-Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDxQp(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
     const Eigen::Ref<const Eigen::MatrixXd> &Jn,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const ModelInstanceIndexToVecMap &q_dict, const double h,
     const size_t n_d) const {
+  MatrixXd Dv_nextDq = MatrixXd::Zero(n_v_, n_q_);
+  CalcDv_nextDbDq(Dv_nextDb, h, &Dv_nextDq);
+
+  /*----------------------------------------------------------------*/
   // Compute Dv_nextDvecG from the KKT conditions of the QP.
   const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
       dqp_->get_DzDvecG_active();
@@ -1060,25 +1072,17 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   /*----------------------------------------------------------------*/
   // e := phi_constraints / h.
   MatrixXd De_active_Dq(n_la, n_q_);
-  std::set<int> active_contact_indices;
+  std::vector<int> active_contact_indices;
   for (int i = 0; i < n_la; i++) {
     const int i_c = lambda_star_active_indices[i] / n_d;
     De_active_Dq.row(i) = ConvertColVToQdot(q_dict, Jn.row(i_c)) / h;
-    active_contact_indices.insert(i_c);
+
+    if (active_contact_indices.empty() or
+        active_contact_indices.back() != i_c) {
+      active_contact_indices.push_back(i_c);
+    }
   }
 
-  /*----------------------------------------------------------------*/
-  MatrixXd DbDq = MatrixXd::Zero(n_v_, n_q_);
-  for (const auto &model : models_actuated_) {
-    const auto &idx_v = velocity_indices_.at(model);
-    const auto &idx_q = position_indices_.at(model);
-    const auto &Kq_i = robot_stiffness_.at(model);
-    // TODO: This needs double check!
-    DbDq(idx_q, idx_v).diagonal() = h * Kq_i;
-  }
-
-  /*----------------------------------------------------------------*/
-  MatrixXd Dv_nextDq = Dv_nextDb * DbDq;
   Dv_nextDq += Dv_nextDe(Eigen::all, lambda_star_active_indices) * De_active_Dq;
 
   /*----------------------------------------------------------------*/
@@ -1089,7 +1093,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     const auto q_ad = InitializeAutoDiff(q);
     UpdateMbpAdPositions(q_ad);
     const auto sdps_active =
-        CalcSignedDistancePairsFromCollisionPairs(active_contact_indices);
+        CalcSignedDistancePairsFromCollisionPairs(&active_contact_indices);
     // TODO: only J_active_ad is used. Think of a less wasteful interface?
     std::vector<MatrixX<AutoDiffXd>> J_active_ad_list;
     MatrixX<AutoDiffXd> Jn_active_ad;
@@ -1106,6 +1110,27 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
     Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
   }
 
+  return CalcDq_nextDqFromDv_nextDq(Dv_nextDq, q_dict, v_star, h);
+}
+
+void QuasistaticSimulator::CalcDv_nextDbDq(
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb, const double h,
+    drake::EigenPtr<Eigen::MatrixXd> Dv_nextDq_ptr) const {
+  MatrixXd DbDq = MatrixXd::Zero(n_v_, n_q_);
+  for (const auto &model : models_actuated_) {
+    const auto &idx_v = velocity_indices_.at(model);
+    const auto &idx_q = position_indices_.at(model);
+    const auto &Kq_i = robot_stiffness_.at(model);
+    // TODO: This needs double check!
+    DbDq(idx_q, idx_v).diagonal() = h * Kq_i;
+  }
+  *Dv_nextDq_ptr += Dv_nextDb * DbDq;
+}
+
+Eigen::MatrixXd QuasistaticSimulator::CalcDq_nextDqFromDv_nextDq(
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDq,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star, const double h) const {
   if (n_v_ == n_q_) {
     return MatrixXd::Identity(n_v_, n_v_) + h * Dv_nextDq;
   }
@@ -1115,6 +1140,42 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDx(
   A *= h;
   A.diagonal() += VectorXd::Ones(n_q_);
   return A;
+}
+
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const ModelInstanceIndexToVecMap &q_dict, const double h,
+    const double kappa,
+    const Eigen::LLT<MatrixXd> &H_llt) const {
+  MatrixXd DyDq = MatrixXd::Zero(n_v_, n_q_);
+  CalcDv_nextDbDq(MatrixXd::Identity(n_v_, n_v_) * kappa, h, &DyDq);
+
+  /*----------------------------------------------------------------*/
+  const auto q = GetQVecFromDict(q_dict);
+  const auto q_ad = InitializeAutoDiff(q);
+  UpdateMbpAdPositions(q_ad);
+  const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
+  const auto n_c = sdps.size();
+  std::vector<Matrix3X<AutoDiffXd>> J_ad_list;
+  VectorX<AutoDiffXd> phi_ad;
+  cjc_ad_->CalcJacobianAndPhiSocp(context_plant_ad_, sdps, &phi_ad, &J_ad_list);
+
+  VectorX<drake::AutoDiffXd> y(n_v_);
+  y.setZero();
+  for (int i_c = 0; i_c < n_c; i_c++) {
+    const auto &J = J_ad_list[i_c];
+    Vector3<AutoDiffXd> w = J * v_star;
+    w[0] += phi_ad[i_c] / h / cjc_->get_friction_coefficient(i_c);
+    AutoDiffXd d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+
+    y +=
+        2 * J.transpose() * Vector3<AutoDiffXd>(w[0] / d, -w[1] / d, -w[2] / d);
+  }
+
+  DyDq += drake::math::ExtractGradient(y);
+  H_llt.solveInPlace(DyDq); // Now it becomes Dv_nextDq.
+
+  return CalcDq_nextDqFromDv_nextDq(DyDq, q_dict, v_star, h);
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
@@ -1277,9 +1338,16 @@ void QuasistaticSimulator::AddDNDq2A(
 
 std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
 QuasistaticSimulator::CalcSignedDistancePairsFromCollisionPairs(
-    const std::set<int> &active_contact_indices) const {
+    std::vector<int> const *active_contact_indices) const {
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>> sdps_ad;
-  for (const auto i : active_contact_indices) {
+  std::vector<int> all_indices;
+  if (active_contact_indices == nullptr) {
+    all_indices.resize(collision_pairs_.size());
+    std::iota(all_indices.begin(), all_indices.end(), 0);
+    active_contact_indices = &all_indices;
+  }
+
+  for (const auto i : *active_contact_indices) {
     const auto &collision_pair = collision_pairs_[i];
     sdps_ad.push_back(query_object_ad_->ComputeSignedDistancePairClosestPoints(
         collision_pair.first, collision_pair.second));

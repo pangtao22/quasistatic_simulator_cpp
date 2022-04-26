@@ -162,8 +162,7 @@ public:
   Eigen::VectorXi GetQaIndicesIntoQ() const;
   Eigen::VectorXi GetQuIndicesIntoQ() const;
   Eigen::VectorXi GetModelsIndicesIntoQ(
-      const std::set<drake::multibody::ModelInstanceIndex> & models
-      ) const;
+      const std::set<drake::multibody::ModelInstanceIndex> &models) const;
 
   static Eigen::VectorXd
   CalcDynamics(QuasistaticSimulator *q_sim,
@@ -194,13 +193,12 @@ private:
   static Eigen::Matrix<double, 3, 4>
   CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q);
 
-  Eigen::Map<const Eigen::VectorXi> GetIndicesAsVec(
-      const drake::multibody::ModelInstanceIndex &model,
-      ModelIndicesMode mode) const;
+  Eigen::Map<const Eigen::VectorXi>
+  GetIndicesAsVec(const drake::multibody::ModelInstanceIndex &model,
+                  ModelIndicesMode mode) const;
 
-  void AddDNDq2A(
-      const Eigen::Ref<const Eigen::VectorXd> &v_star,
-      drake::EigenPtr<Eigen::MatrixXd> A_ptr) const;
+  void AddDNDq2A(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                 drake::EigenPtr<Eigen::MatrixXd> A_ptr) const;
 
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
@@ -208,20 +206,38 @@ private:
 
   void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                    const ModelInstanceIndexToVecMap &tau_ext_dict,
-                    const double h, Eigen::MatrixXd *Q_ptr,
-                    Eigen::VectorXd *tau_h_ptr,
-                    const double unactuated_mass_scale) const;
+                    const ModelInstanceIndexToVecMap &tau_ext_dict, double h,
+                    Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr,
+                    double unactuated_mass_scale) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const double h,
+                           double h,
                            const ModelInstanceIndexToVecMap &q_dict) const;
-  Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
-                           const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-                           const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                           const ModelInstanceIndexToVecMap &q_dict,
-                           const double h, const size_t n_d) const;
+
+  Eigen::MatrixXd CalcDfDxQp(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                             const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+                             const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                             const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                             const ModelInstanceIndexToVecMap &q_dict, double h,
+                             size_t n_d) const;
+  /*
+   * Adds Dv_nextDb * DbDq to Dv_nextDq.
+   */
+  void CalcDv_nextDbDq(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                       double h,
+                       drake::EigenPtr<Eigen::MatrixXd> Dv_nextDq_ptr) const;
+
+  Eigen::MatrixXd
+  CalcDq_nextDqFromDv_nextDq(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDq,
+                             const ModelInstanceIndexToVecMap &q_dict,
+                             const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                             double h) const;
+
+  Eigen::MatrixXd
+  CalcDfDxLogIcecream(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                      const ModelInstanceIndexToVecMap &q_dict, double h,
+                      double kappa,
+                      const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,
@@ -233,7 +249,7 @@ private:
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
   CalcSignedDistancePairsFromCollisionPairs(
-      const std::set<int> &active_contact_indices) const;
+      std::vector<int> const *active_contact_indices = nullptr) const;
 
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
@@ -261,13 +277,12 @@ private:
 
   static void CalcContactResultsQp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
-      const double h,
+      const Eigen::Ref<const Eigen::VectorXd> &beta_star, int n_d, double h,
       drake::multibody::ContactResults<double> *contact_results);
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const std::vector<Eigen::VectorXd> &lambda_star, const double h,
+      const std::vector<Eigen::VectorXd> &lambda_star, double h,
       drake::multibody::ContactResults<double> *contact_results);
 
   void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -344,6 +359,7 @@ private:
                      Eigen::LLT<Eigen::MatrixXd> const *const H_llt);
 
   void BackwardLogIcecream(const ModelInstanceIndexToVecMap &q_dict,
+                           const Eigen::Ref<const Eigen::VectorXd> &v_star,
                            const QuasistaticSimParameters &params,
                            const Eigen::LLT<Eigen::MatrixXd> &H_llt);
 

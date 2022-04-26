@@ -33,6 +33,7 @@ protected:
     params_.h = 0.1;
     params_.gravity = Vector3d(0, 0, -10);
     params_.is_quasi_dynamic = true;
+    params_.log_barrier_weight = 100;
 
     const auto n_q = q_sim_->get_plant().num_positions();
     const auto n_a = q_sim_->num_actuated_dofs();
@@ -57,7 +58,7 @@ protected:
 };
 
 TEST_F(TestQuasistaticSim, TestDfDu) {
-  params_.forward_mode = ForwardDynamicsMode::kQpMp;
+  params_.forward_mode = ForwardDynamicsMode::kLogIcecream;
   params_.gradient_mode = GradientMode::kAB;
 
   q_sim_->CalcDynamics(q0_, u0_, params_);

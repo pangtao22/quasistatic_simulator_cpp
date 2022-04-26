@@ -59,14 +59,13 @@ int main() {
   auto q_sim_batch = BatchQuasistaticSimulator(
       kModelDirectivePath, robot_stiffness_dict, object_sdf_dict, sim_params);
 
-  MatrixXd x_batch(n_tasks + 1, 10);
+  MatrixXd x_batch(n_tasks, 10);
   MatrixXd u_batch(n_tasks, 3);
   for (int i = 0; i < n_tasks; i++) {
     x_batch.row(i).head(3) = q0_dict[idx_r];
     x_batch.row(i).tail(7) = q0_dict[idx_o];
     u_batch.row(i) = q0_dict[idx_r];
   }
-  x_batch.row(n_tasks) = x_batch.row(0);
 
   auto t_start = std::chrono::steady_clock::now();
   auto result1 = q_sim_batch.CalcBundledABcTrjScalarStd(
