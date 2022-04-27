@@ -1160,7 +1160,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
   VectorX<AutoDiffXd> phi_ad;
   cjc_ad_->CalcJacobianAndPhiSocp(context_plant_ad_, sdps, &phi_ad, &J_ad_list);
 
-  VectorX<drake::AutoDiffXd> y(n_v_);
+  VectorX<AutoDiffXd> y(n_v_);
   y.setZero();
   for (int i_c = 0; i_c < n_c; i_c++) {
     const auto &J = J_ad_list[i_c];
