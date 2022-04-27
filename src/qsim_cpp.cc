@@ -146,7 +146,8 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def(py::init<double>(), py::arg("tol"))
         .def("UpdateProblem", &Class::UpdateProblem)
         .def("get_DzDe", &Class::get_DzDe)
-        .def("get_DzDb", &Class::get_DzDb);
+        .def("get_DzDb", &Class::get_DzDb)
+        .def("get_DzDvecG_active", &Class::get_DzDvecG_active);
   }
 
   {

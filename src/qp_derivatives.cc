@@ -1,6 +1,5 @@
 #include <cmath>
 #include <iostream>
-#include <spdlog/spdlog.h>
 #include <unsupported/Eigen/KroneckerProduct>
 
 #include "drake/common/drake_assert.h"

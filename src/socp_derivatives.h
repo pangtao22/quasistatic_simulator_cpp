@@ -21,7 +21,10 @@ public:
                      double lambda_threshold, bool calc_G_grad);
   [[nodiscard]] const Eigen::MatrixXd &get_DzDe() const { return DzDe_; };
   [[nodiscard]] const Eigen::MatrixXd &get_DzDb() const { return DzDb_; };
-
+  [[nodiscard]] std::pair<const Eigen::MatrixXd &, const std::vector<int> &>
+  get_DzDvecG_active() const {
+    return {DzDvecG_active_, lambda_star_active_indices_};
+  }
 private:
   const double tol_;
   Eigen::MatrixXd DzDe_;

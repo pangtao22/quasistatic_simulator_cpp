@@ -1,4 +1,7 @@
 #include <iostream>
+
+#include <unsupported/Eigen/KroneckerProduct>
+
 #include "socp_derivatives.h"
 
 using Eigen::Matrix3d;
@@ -17,6 +20,24 @@ MatrixXd CalcC(const Eigen::Ref<const Eigen::VectorXd> &v) {
   V(seq(1, Eigen::last), 0) = v.tail(n - 1);
   V(seq(1, Eigen::last), seq(1, Eigen::last)).diagonal().setConstant(v[0]);
   return V;
+}
+
+/*
+ * A12: (n_z, n_c_active * m)
+ * C_lambda_list: n_c_active (m, m) matrices.
+ */
+MatrixXd CalcA12CLambda(const Eigen::Ref<const Eigen::MatrixXd> &A12,
+                        const std::vector<MatrixXd> &C_lambda_list) {
+  MatrixXd A12C_lambda(A12);
+  const auto n_c = C_lambda_list.size();
+  const auto m = C_lambda_list[0].rows();
+  for (int i = 0; i < n_c; i++) {
+    auto i_start = i * m;
+    A12C_lambda(Eigen::all, seqN(i_start, m)) =
+        A12(Eigen::all, seqN(i_start, m)) * C_lambda_list[i];
+  }
+
+  return A12C_lambda;
 }
 
 void SocpDerivatives::UpdateProblem(
@@ -50,6 +71,7 @@ void SocpDerivatives::UpdateProblem(
   A_inv.topLeftCorner(n_z, n_z) = Q;
 
   std::vector<MatrixXd> C_lambda_list;
+  VectorXd lambda_star_active(n_la);
   for (int i = 0; i < n_c_active; i++) {
     const auto idx = lambda_star_active_indices_[i];
     const MatrixXd &G_i = G_list[idx];
@@ -65,11 +87,12 @@ void SocpDerivatives::UpdateProblem(
     A_inv.block(k, k, m, m) = CalcC(w_i);
 
     C_lambda_list.emplace_back(std::move(C_lambda_i));
+    lambda_star_active(seqN(m * i, m)) = lambda_i;
   }
 
   const MatrixXd A = QpDerivatives::CalcInverseAndCheck(A_inv, tol_);
-//  cout << "A_inv\n" << A_inv << endl;
-//  cout << "A\n" << A << endl;
+  //  cout << "A_inv\n" << A_inv << endl;
+  //  cout << "A\n" << A << endl;
 
   const MatrixXd &A_11 = A.topLeftCorner(n_z, n_z);
   DzDb_ = -A_11;
@@ -79,6 +102,23 @@ void SocpDerivatives::UpdateProblem(
     const auto idx = lambda_star_active_indices_[i];
     DzDe_(Eigen::all, seqN(idx * m, m)) =
         -A.block(0, n_z + i * m, n_z, m) * C_lambda_list[i];
-//    cout << "i: " << i << " idx: "<< idx << endl << C_lambda_list[i] << endl;
+    //    cout << "i: " << i << " idx: "<< idx << endl << C_lambda_list[i] <<
+    //    endl;
   }
+
+  // DzDvecG_active
+  if (not calc_G_grad) {
+    return;
+  }
+
+  if (lambda_star_active_indices_.empty()) {
+    DzDvecG_active_.resize(n_z, 0);
+    return;
+  }
+
+  const MatrixXd &A_12 = A.topRightCorner(n_z, n_la);
+  MatrixXd A12CLambda = CalcA12CLambda(A_12, C_lambda_list);
+  DzDvecG_active_ =
+      -Eigen::kroneckerProduct(A_11, lambda_star_active.transpose());
+  DzDvecG_active_ += Eigen::kroneckerProduct(z_star.transpose(), A12CLambda);
 }
