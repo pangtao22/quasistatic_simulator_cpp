@@ -781,6 +781,18 @@ void QuasistaticSimulator::BackwardSocp(
     return;
   }
 
+  if (params.gradient_mode == GradientMode::kAB) {
+    dsocp_->UpdateProblem(Q, -tau_h, G_list, e_list, v_star, lambda_star_list,
+                          0.1 * params.h, true);
+    const auto &Dv_nextDb = dsocp_->get_DzDb();
+    const auto &Dv_nextDe = dsocp_->get_DzDe();
+    Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict_next);
+    Dq_nextDq_ = CalcDfDxSocp(
+        Dv_nextDb, Dv_nextDe, J_list, v_star, q_dict_next, params.h);
+
+    return;
+  }
+
   throw std::runtime_error("Invalid gradient_mode.");
 }
 
@@ -1008,11 +1020,15 @@ std::vector<std::vector<int>> CalcRelativeActiveIndicesList(
  * This function returns DG_active_vecDq, a matrix of shape
  *  (n_lambda_active * n_v, n_q).
  *
- * Note that G_active = -J_active!!!
+ * NOTE THAT G_active = -J_active!!!
  */
+template <Eigen::Index M>
 MatrixXd CalcDGactiveDqFromJActiveList(
-    const std::vector<MatrixX<AutoDiffXd>> &J_active_ad_list,
+    const std::vector<Eigen::Matrix<AutoDiffXd, M, -1>> &J_active_ad_list,
     const std::vector<std::vector<int>> *relative_active_indices_list) {
+  const int m = J_active_ad_list.front().rows();
+  const auto n_v = J_active_ad_list.front().cols();
+  const auto n_q = J_active_ad_list.front()(0, 0).derivatives().size();
   int n_la; // Total number of active rows in G_active.
   if (relative_active_indices_list) {
     n_la = std::accumulate(
@@ -1020,11 +1036,10 @@ MatrixXd CalcDGactiveDqFromJActiveList(
         relative_active_indices_list->end(), 0,
         [](int a, const std::vector<int> &b) { return a + b.size(); });
   } else {
-    n_la = J_active_ad_list.size() * J_active_ad_list.front().rows();
+    n_la = J_active_ad_list.size() * m;
   }
-  const auto n_v = J_active_ad_list.front().cols();
-  const auto n_q = J_active_ad_list.front()(0, 0).derivatives().size();
-  std::vector<int> row_indices_all;
+
+  std::vector<int> row_indices_all(m);
   std::iota(row_indices_all.begin(), row_indices_all.end(), 0);
 
   MatrixXd DvecG_activeDq(n_la * n_v, n_q);
@@ -1074,7 +1089,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxQp(
   MatrixXd De_active_Dq(n_la, n_q_);
   std::vector<int> active_contact_indices;
   for (int i = 0; i < n_la; i++) {
-    const int i_c = lambda_star_active_indices[i] / n_d;
+    const size_t i_c = lambda_star_active_indices[i] / n_d;
     De_active_Dq.row(i) = ConvertColVToQdot(q_dict, Jn.row(i_c)) / h;
 
     if (active_contact_indices.empty() or
@@ -1104,8 +1119,61 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxQp(
 
     const auto relative_active_indices_list =
         CalcRelativeActiveIndicesList(lambda_star_active_indices, n_d);
-    const auto DvecG_activeDq = CalcDGactiveDqFromJActiveList(
+    const auto DvecG_activeDq =
+        CalcDGactiveDqFromJActiveList<-1>(
         J_active_ad_list, &relative_active_indices_list);
+
+    Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
+  }
+
+  return CalcDq_nextDqFromDv_nextDq(Dv_nextDq, q_dict, v_star, h);
+}
+
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDxSocp(
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+    const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+    const vector<Eigen::Matrix3Xd> &J_list,
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const ModelInstanceIndexToVecMap &q_dict, const double h) const {
+  static constexpr int m{3}; // Dimension of 2nd order cones.
+
+  MatrixXd Dv_nextDq = MatrixXd::Zero(n_v_, n_q_);
+  CalcDv_nextDbDq(Dv_nextDb, h, &Dv_nextDq);
+
+  const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
+  dsocp_->get_DzDvecG_active();
+  const auto n_la = lambda_star_active_indices.size();
+
+  /*-------------------------------------------------------------------*/
+  // e[i] := phi[i] / h / mu[i].
+  MatrixXd De_active_Dq(n_la, n_q_);
+  // The vector e, as defined in the SocpDerivatives class, e is an (m * n_l)
+  // vector, where n_l == J_list.size(). But we know that for every m-length
+  // segment of e, only the first element is a function of q.
+  vector<int> active_indices_into_e;
+  for (int i = 0; i < n_la; i++) {
+    const int i_c = lambda_star_active_indices[i];
+    De_active_Dq.row(i) = ConvertColVToQdot(
+        q_dict, J_list[i_c].row(0)) / h;
+    active_indices_into_e.push_back(i_c * m);
+  }
+
+  Dv_nextDq += Dv_nextDe(Eigen::all, active_indices_into_e) * De_active_Dq;
+  /*----------------------------------------------------------------*/
+  if (not lambda_star_active_indices.empty()) {
+    const auto q = GetQVecFromDict(q_dict);
+    const auto q_ad = InitializeAutoDiff(q);
+    UpdateMbpAdPositions(q_ad);
+    const auto sdps_active =
+        CalcSignedDistancePairsFromCollisionPairs(&lambda_star_active_indices);
+    // TODO: only J_active_ad is used. Think of a less wasteful interface?
+    std::vector<Matrix3X<AutoDiffXd>> J_active_ad_list;
+    VectorX<AutoDiffXd> phi_active_ad;
+    cjc_ad_->CalcJacobianAndPhiSocp(context_plant_ad_, sdps_active,
+                                  &phi_active_ad, &J_active_ad_list);
+
+    const auto DvecG_activeDq =
+        CalcDGactiveDqFromJActiveList<3>(J_active_ad_list, nullptr);
 
     Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
   }
@@ -1145,8 +1213,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDq_nextDqFromDv_nextDq(
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const ModelInstanceIndexToVecMap &q_dict, const double h,
-    const double kappa,
-    const Eigen::LLT<MatrixXd> &H_llt) const {
+    const double kappa, const Eigen::LLT<MatrixXd> &H_llt) const {
   MatrixXd DyDq = MatrixXd::Zero(n_v_, n_q_);
   CalcDv_nextDbDq(MatrixXd::Identity(n_v_, n_v_) * kappa, h, &DyDq);
 

@@ -220,6 +220,13 @@ private:
                              const Eigen::Ref<const Eigen::VectorXd> &v_star,
                              const ModelInstanceIndexToVecMap &q_dict, double h,
                              size_t n_d) const;
+
+  Eigen::MatrixXd
+  CalcDfDxSocp(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+               const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+               const std::vector<Eigen::Matrix3Xd> &J_list,
+               const Eigen::Ref<const Eigen::VectorXd> &v_star,
+               const ModelInstanceIndexToVecMap &q_dict, double h) const;
   /*
    * Adds Dv_nextDb * DbDq to Dv_nextDq.
    */

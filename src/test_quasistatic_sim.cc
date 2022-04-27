@@ -58,16 +58,22 @@ protected:
 };
 
 TEST_F(TestQuasistaticSim, TestDfDu) {
-  params_.forward_mode = ForwardDynamicsMode::kLogIcecream;
   params_.gradient_mode = GradientMode::kAB;
 
+  params_.forward_mode = ForwardDynamicsMode::kSocpMp;
   q_sim_->CalcDynamics(q0_, u0_, params_);
-  const auto B_analytic = q_sim_->get_Dq_nextDqa_cmd();
-  auto A_analytic = q_sim_->get_Dq_nextDq();
-  SetSmallNumbersToZero(A_analytic);
+  const auto B_analytic_socp = q_sim_->get_Dq_nextDqa_cmd();
+  auto A_analytic_socp = q_sim_->get_Dq_nextDq();
+  SetSmallNumbersToZero(A_analytic_socp);
 
+  params_.forward_mode = ForwardDynamicsMode::kQpMp;
+  q_sim_->CalcDynamics(q0_, u0_, params_);
+  const auto B_analytic_qp = q_sim_->get_Dq_nextDqa_cmd();
+  auto A_analytic_qp = q_sim_->get_Dq_nextDq();
+  SetSmallNumbersToZero(A_analytic_qp);
+
+  // Numerical gradients.
   auto fd = FiniteDiffGradientCalculator(*q_sim_);
-
   const auto B_numerical = fd.CalcB(q0_, u0_, 5e-4, params_);
   auto A_numerical = fd.CalcA(q0_, u0_, 5e-4, params_);
   SetSmallNumbersToZero(A_numerical, 1e-10);
@@ -75,15 +81,17 @@ TEST_F(TestQuasistaticSim, TestDfDu) {
   const auto &[B_zero, c_zero] = q_sim_b_->CalcBcLstsq(
       q0_, u0_, params_, Eigen::VectorXd::Constant(u0_.size(), 0.1), 1000);
 
-  cout << "Norm diff A " << (A_analytic - A_numerical).norm();
+  cout << "Norm diff A " << (A_analytic_socp - A_analytic_qp).norm();
   cout << " A_numerical_norm " << A_numerical.norm();
-  cout << " A_analytic_norm " << A_analytic.norm() << endl;
-  cout << "A_analytic\n" << A_analytic << endl;
+  cout << " A_analytic_socp_norm " << A_analytic_socp.norm();
+  cout << " A_analytic_qp_norm " << A_analytic_qp.norm() << endl;
+  cout << "A_analytic_socp\n" << A_analytic_socp << endl;
+  cout << "A_analytic_qp\n" << A_analytic_qp << endl;
   cout << "A_numerical\n" << A_numerical << endl;
 
-  cout << "B_analytic\n" << B_analytic << endl;
+  cout << "B_analytic_socp\n" << B_analytic_socp << endl;
   cout << "B_zero\n" << B_zero << endl;
-  cout << "Norm diff B " << (B_analytic - B_zero).norm() << endl;
+  cout << "Norm diff B " << (B_analytic_socp - B_zero).norm() << endl;
 
 
 }
