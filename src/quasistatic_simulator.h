@@ -226,7 +226,9 @@ private:
                const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
                const std::vector<Eigen::Matrix3Xd> &J_list,
                const Eigen::Ref<const Eigen::VectorXd> &v_star,
-               const ModelInstanceIndexToVecMap &q_dict, double h) const;
+               const ModelInstanceIndexToVecMap &q_dict,
+               const ModelInstanceIndexToVecMap &q_next_dict,
+               double h) const;
   /*
    * Adds Dv_nextDb * DbDq to Dv_nextDq.
    */
@@ -242,7 +244,8 @@ private:
 
   Eigen::MatrixXd
   CalcDfDxLogIcecream(const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                      const ModelInstanceIndexToVecMap &q_dict, double h,
+                      const ModelInstanceIndexToVecMap &q_dict,
+                      const ModelInstanceIndexToVecMap &q_next_dict, double h,
                       double kappa,
                       const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
@@ -351,6 +354,7 @@ private:
                     const std::vector<Eigen::Matrix3Xd> &J_list,
                     const std::vector<Eigen::VectorXd> &e_list,
                     const Eigen::Ref<const Eigen::VectorXd> &phi,
+                    const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_dict_next,
                     const Eigen::Ref<const Eigen::VectorXd> &v_star,
                     const std::vector<Eigen::VectorXd> &lambda_star_list,
@@ -366,6 +370,7 @@ private:
                      Eigen::LLT<Eigen::MatrixXd> const *const H_llt);
 
   void BackwardLogIcecream(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_next_dict,
                            const Eigen::Ref<const Eigen::VectorXd> &v_star,
                            const QuasistaticSimParameters &params,
                            const Eigen::LLT<Eigen::MatrixXd> &H_llt);

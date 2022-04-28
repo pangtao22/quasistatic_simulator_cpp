@@ -454,14 +454,14 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                lambda_star_list, params.h, &contact_results_);
       }
 
-      BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict_next, v_star,
-                   lambda_star_list, params);
+      BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict, q_dict_next,
+                   v_star, lambda_star_list, params);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogIcecream) {
       ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
-      BackwardLogIcecream(q_dict_next, v_star, params,
+      BackwardLogIcecream(q_dict, q_dict_next, v_star, params,
                           solver_log_icecream_->get_H_llt());
       return;
     }
@@ -759,6 +759,7 @@ void QuasistaticSimulator::BackwardSocp(
     const vector<Eigen::Matrix3Xd> &J_list,
     const std::vector<Eigen::VectorXd> &e_list,
     const Eigen::Ref<const Eigen::VectorXd> &phi,
+    const ModelInstanceIndexToVecMap &q_dict,
     const ModelInstanceIndexToVecMap &q_dict_next,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const std::vector<Eigen::VectorXd> &lambda_star_list,
@@ -787,8 +788,8 @@ void QuasistaticSimulator::BackwardSocp(
     const auto &Dv_nextDb = dsocp_->get_DzDb();
     const auto &Dv_nextDe = dsocp_->get_DzDe();
     Dq_nextDqa_cmd_ = CalcDfDu(Dv_nextDb, params.h, q_dict_next);
-    Dq_nextDq_ = CalcDfDxSocp(
-        Dv_nextDb, Dv_nextDe, J_list, v_star, q_dict_next, params.h);
+    Dq_nextDq_ = CalcDfDxSocp(Dv_nextDb, Dv_nextDe, J_list, v_star, q_dict,
+                              q_dict_next, params.h);
 
     return;
   }
@@ -831,6 +832,7 @@ void QuasistaticSimulator::BackwardLogPyramid(
 
 void QuasistaticSimulator::BackwardLogIcecream(
     const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_next_dict,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const QuasistaticSimParameters &params,
     const Eigen::LLT<Eigen::MatrixXd> &H_llt) {
@@ -839,14 +841,14 @@ void QuasistaticSimulator::BackwardLogIcecream(
   }
 
   if (params.gradient_mode == GradientMode::kBOnly) {
-    CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    CalcUnconstrainedBFromHessian(H_llt, params, q_next_dict, &Dq_nextDqa_cmd_);
     Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     return;
   }
 
   if (params.gradient_mode == GradientMode::kAB) {
     CalcUnconstrainedBFromHessian(H_llt, params, q_dict, &Dq_nextDqa_cmd_);
-    Dq_nextDq_ = CalcDfDxLogIcecream(v_star, q_dict, params.h,
+    Dq_nextDq_ = CalcDfDxLogIcecream(v_star, q_dict, q_next_dict, params.h,
                                      params.log_barrier_weight, H_llt);
     return;
   }
@@ -1119,8 +1121,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxQp(
 
     const auto relative_active_indices_list =
         CalcRelativeActiveIndicesList(lambda_star_active_indices, n_d);
-    const auto DvecG_activeDq =
-        CalcDGactiveDqFromJActiveList<-1>(
+    const auto DvecG_activeDq = CalcDGactiveDqFromJActiveList<-1>(
         J_active_ad_list, &relative_active_indices_list);
 
     Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
@@ -1132,16 +1133,17 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxQp(
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDxSocp(
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
     const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
-    const vector<Eigen::Matrix3Xd> &J_list,
+    const std::vector<Eigen::Matrix3Xd> &J_list,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const ModelInstanceIndexToVecMap &q_dict, const double h) const {
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_next_dict, double h) const {
   static constexpr int m{3}; // Dimension of 2nd order cones.
 
   MatrixXd Dv_nextDq = MatrixXd::Zero(n_v_, n_q_);
   CalcDv_nextDbDq(Dv_nextDb, h, &Dv_nextDq);
 
   const auto &[Dv_nextDvecG_active, lambda_star_active_indices] =
-  dsocp_->get_DzDvecG_active();
+      dsocp_->get_DzDvecG_active();
   const auto n_la = lambda_star_active_indices.size();
 
   /*-------------------------------------------------------------------*/
@@ -1153,24 +1155,22 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxSocp(
   vector<int> active_indices_into_e;
   for (int i = 0; i < n_la; i++) {
     const int i_c = lambda_star_active_indices[i];
-    De_active_Dq.row(i) = ConvertColVToQdot(
-        q_dict, J_list[i_c].row(0)) / h;
+    De_active_Dq.row(i) = ConvertColVToQdot(q_dict, J_list[i_c].row(0)) / h;
     active_indices_into_e.push_back(i_c * m);
   }
 
   Dv_nextDq += Dv_nextDe(Eigen::all, active_indices_into_e) * De_active_Dq;
   /*----------------------------------------------------------------*/
   if (not lambda_star_active_indices.empty()) {
-    const auto q = GetQVecFromDict(q_dict);
-    const auto q_ad = InitializeAutoDiff(q);
-    UpdateMbpAdPositions(q_ad);
+    const auto q = GetQVecFromDict(q_next_dict);
+    UpdateMbpAdPositions(InitializeAutoDiff(q));
     const auto sdps_active =
         CalcSignedDistancePairsFromCollisionPairs(&lambda_star_active_indices);
     // TODO: only J_active_ad is used. Think of a less wasteful interface?
     std::vector<Matrix3X<AutoDiffXd>> J_active_ad_list;
     VectorX<AutoDiffXd> phi_active_ad;
     cjc_ad_->CalcJacobianAndPhiSocp(context_plant_ad_, sdps_active,
-                                  &phi_active_ad, &J_active_ad_list);
+                                    &phi_active_ad, &J_active_ad_list);
 
     const auto DvecG_activeDq =
         CalcDGactiveDqFromJActiveList<3>(J_active_ad_list, nullptr);
@@ -1178,7 +1178,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxSocp(
     Dv_nextDq += Dv_nextDvecG_active * DvecG_activeDq;
   }
 
-  return CalcDq_nextDqFromDv_nextDq(Dv_nextDq, q_dict, v_star, h);
+  return CalcDq_nextDqFromDv_nextDq(Dv_nextDq, q_next_dict, v_star, h);
 }
 
 void QuasistaticSimulator::CalcDv_nextDbDq(
@@ -1212,7 +1212,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDq_nextDqFromDv_nextDq(
 
 Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
-    const ModelInstanceIndexToVecMap &q_dict, const double h,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_next_dict, const double h,
     const double kappa, const Eigen::LLT<MatrixXd> &H_llt) const {
   MatrixXd DyDq = MatrixXd::Zero(n_v_, n_q_);
   CalcDv_nextDbDq(MatrixXd::Identity(n_v_, n_v_) * kappa, h, &DyDq);
@@ -1227,6 +1228,8 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
   VectorX<AutoDiffXd> phi_ad;
   cjc_ad_->CalcJacobianAndPhiSocp(context_plant_ad_, sdps, &phi_ad, &J_ad_list);
 
+  //  cout << "DyDq\n" << DyDq << endl;
+
   VectorX<AutoDiffXd> y(n_v_);
   y.setZero();
   for (int i_c = 0; i_c < n_c; i_c++) {
@@ -1234,15 +1237,22 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
     Vector3<AutoDiffXd> w = J * v_star;
     w[0] += phi_ad[i_c] / h / cjc_->get_friction_coefficient(i_c);
     AutoDiffXd d = -w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-
-    y +=
+    VectorX<AutoDiffXd> thing_to_add =
         2 * J.transpose() * Vector3<AutoDiffXd>(w[0] / d, -w[1] / d, -w[2] / d);
+    y += thing_to_add;
+
+    //    const auto A_to_add = drake::math::ExtractGradient(thing_to_add);
+    //    cout << i_c;
+    //    cout << " d " << d;
+    //    cout << " phi " << phi_ad[i_c];
+    //    cout << " A_max " << A_to_add.array().abs().maxCoeff();
+    //    cout << "\n";
   }
 
   DyDq += drake::math::ExtractGradient(y);
   H_llt.solveInPlace(DyDq); // Now it becomes Dv_nextDq.
 
-  return CalcDq_nextDqFromDv_nextDq(DyDq, q_dict, v_star, h);
+  return CalcDq_nextDqFromDv_nextDq(DyDq, q_next_dict, v_star, h);
 }
 
 void QuasistaticSimulator::GetGeneralizedForceFromExternalSpatialForce(
