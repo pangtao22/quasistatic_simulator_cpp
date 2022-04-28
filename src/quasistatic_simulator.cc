@@ -390,7 +390,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                 const QuasistaticSimParameters &params) {
   const auto fm = params.forward_mode;
   const auto q_dict = GetMbpPositions();
-  auto q_dict_next(q_dict);
+  auto q_next_dict(q_dict);
 
   if (kPyramidModes.find(fm) != kPyramidModes.end()) {
     // Optimization coefficient matrices and vectors.
@@ -403,7 +403,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
 
     if (fm == ForwardDynamicsMode::kQpMp) {
       VectorXd beta_star;
-      ForwardQp(Q, tau_h, J, phi_constraints, params, &q_dict_next, &v_star,
+      ForwardQp(Q, tau_h, J, phi_constraints, params, &q_next_dict, &v_star,
                 &beta_star);
 
       if (params.calc_contact_forces) {
@@ -412,24 +412,24 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                              &contact_results_);
       }
 
-      BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_dict_next, v_star,
+      BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_next_dict, v_star,
                  beta_star, params);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogPyramidMp) {
-      ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_dict_next,
+      ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_next_dict,
                         &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
-                         nullptr);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict,
+                         v_star, params, nullptr);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogPyramidMy) {
       ForwardLogPyramidInHouse(Q, tau_h, J, phi_constraints, params,
-                               &q_dict_next, &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict_next, v_star, params,
-                         &solver_log_pyramid_->get_H_llt());
+                               &q_next_dict, &v_star);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict,
+                         v_star, params, &solver_log_pyramid_->get_H_llt());
       return;
     }
   }
@@ -446,7 +446,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       std::vector<Eigen::VectorXd> lambda_star_list;
       std::vector<Eigen::VectorXd> e_list;
 
-      ForwardSocp(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star,
+      ForwardSocp(Q, tau_h, J_list, phi, params, &q_next_dict, &v_star,
                   &lambda_star_list, &e_list);
 
       if (params.calc_contact_forces) {
@@ -454,14 +454,14 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                                lambda_star_list, params.h, &contact_results_);
       }
 
-      BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict, q_dict_next,
-                   v_star, lambda_star_list, params);
+      BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict, q_next_dict, v_star,
+                   lambda_star_list, params);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogIcecream) {
-      ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_dict_next, &v_star);
-      BackwardLogIcecream(q_dict, q_dict_next, v_star, params,
+      ForwardLogIcecream(Q, tau_h, J_list, phi, params, &q_next_dict, &v_star);
+      BackwardLogIcecream(q_dict, q_next_dict, v_star, params,
                           solver_log_icecream_->get_H_llt());
       return;
     }
@@ -802,32 +802,39 @@ void QuasistaticSimulator::BackwardLogPyramid(
     const Eigen::Ref<const Eigen::MatrixXd> &J,
     const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
     const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_next_dict,
     const Eigen::Ref<const Eigen::VectorXd> &v_star,
     const QuasistaticSimParameters &params,
-    Eigen::LLT<MatrixXd> const *const H_llt) {
+    Eigen::LLT<Eigen::MatrixXd> const *const H_llt) {
   if (params.gradient_mode == GradientMode::kNone) {
     return;
   }
 
-  if (params.gradient_mode == GradientMode::kBOnly) {
-    if (H_llt) {
-      CalcUnconstrainedBFromHessian(*H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+  if (H_llt) {
+    CalcUnconstrainedBFromHessian(*H_llt, params, q_dict, &Dq_nextDqa_cmd_);
+    if (params.gradient_mode == GradientMode::kAB) {
+      Dq_nextDq_ =
+          CalcDfDxLogPyramid(v_star, q_dict, q_next_dict, params, *H_llt);
     } else {
-      Eigen::MatrixXd H(n_v_, n_v_);
-      // not used, but needed by CalcGradientAndHessian.
-      Eigen::VectorXd Df(n_v_);
-      solver_log_pyramid_->CalcGradientAndHessian(
-          Q, VectorXd::Zero(n_v_), -J, phi_constraints / params.h, v_star,
-          params.log_barrier_weight, &Df, &H);
-
-      CalcUnconstrainedBFromHessian(H.llt(), params, q_dict, &Dq_nextDqa_cmd_);
+      Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     }
-
-    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
     return;
   }
 
-  throw std::logic_error("Invalid gradient_mode.");
+  Eigen::MatrixXd H(n_v_, n_v_);
+  // not used, but needed by CalcGradientAndHessian.
+  Eigen::VectorXd Df(n_v_);
+  solver_log_pyramid_->CalcGradientAndHessian(
+      Q, VectorXd::Zero(n_v_), -J, phi_constraints / params.h, v_star,
+      params.log_barrier_weight, &Df, &H);
+
+  CalcUnconstrainedBFromHessian(H.llt(), params, q_dict, &Dq_nextDqa_cmd_);
+  if (params.gradient_mode == GradientMode::kAB) {
+    Dq_nextDq_ =
+        CalcDfDxLogPyramid(v_star, q_dict, q_next_dict, params, H.llt());
+  } else {
+    Dq_nextDq_ = MatrixXd::Zero(n_q_, n_q_);
+  }
 }
 
 void QuasistaticSimulator::BackwardLogIcecream(
@@ -1248,6 +1255,47 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
     //    cout << " phi " << phi_ad[i_c];
     //    cout << " A_max " << A_to_add.array().abs().maxCoeff();
     //    cout << "\n";
+  }
+
+  DyDq += drake::math::ExtractGradient(y);
+  DyDq *= -1;
+  H_llt.solveInPlace(DyDq); // Now it becomes Dv_nextDq.
+
+  return CalcDq_nextDqFromDv_nextDq(DyDq, q_next_dict, v_star, h);
+}
+
+Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogPyramid(
+    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+    const ModelInstanceIndexToVecMap &q_dict,
+    const ModelInstanceIndexToVecMap &q_next_dict,
+    const QuasistaticSimParameters &params,
+    const Eigen::LLT<Eigen::MatrixXd> &H_llt) const {
+  const auto kappa = params.log_barrier_weight;
+  const auto h = params.h;
+  const auto n_d = params.nd_per_contact;
+
+  MatrixXd DyDq = MatrixXd::Zero(n_v_, n_q_);
+  CalcDv_nextDbDq(MatrixXd::Identity(n_v_, n_v_) * kappa, h, &DyDq);
+
+  /*----------------------------------------------------------------*/
+  const auto q = GetQVecFromDict(q_dict);
+  UpdateMbpAdPositions(InitializeAutoDiff(q));
+  const auto sdps = CalcSignedDistancePairsFromCollisionPairs();
+  std::vector<MatrixX<AutoDiffXd>> J_ad_list;
+  MatrixX<AutoDiffXd> Jn_ad;
+  VectorX<AutoDiffXd> phi_ad;
+  cjc_ad_->CalcJacobianAndPhiQp(context_plant_ad_, sdps, n_d, &phi_ad, &Jn_ad,
+                                &J_ad_list);
+
+  const auto n_c = sdps.size();
+  VectorX<AutoDiffXd> y(n_v_);
+  y.setZero();
+  for (int i = 0; i < n_c; i++) {
+    for (int j = 0; j < n_d; j++) {
+      const Eigen::RowVectorX<AutoDiffXd> &J_ij = J_ad_list[i].row(j);
+      const auto d = J_ij.dot(v_star) + phi_ad[i] / h;
+      y -= J_ij.transpose() / d;
+    }
   }
 
   DyDq += drake::math::ExtractGradient(y);

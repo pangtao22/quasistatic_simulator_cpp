@@ -249,6 +249,13 @@ private:
                       double kappa,
                       const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
+  Eigen::MatrixXd CalcDfDxLogPyramid(
+      const Eigen::Ref<const Eigen::VectorXd> &v_star,
+      const ModelInstanceIndexToVecMap &q_dict,
+      const ModelInstanceIndexToVecMap &q_next_dict,
+      const QuasistaticSimParameters &params,
+      const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
+
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,
                                      const ModelInstanceIndexToVecMap &q_dict,
@@ -365,6 +372,7 @@ private:
                      const Eigen::Ref<const Eigen::MatrixXd> &J,
                      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
                      const ModelInstanceIndexToVecMap &q_dict,
+                     const ModelInstanceIndexToVecMap &q_next_dict,
                      const Eigen::Ref<const Eigen::VectorXd> &v_star,
                      const QuasistaticSimParameters &params,
                      Eigen::LLT<Eigen::MatrixXd> const *const H_llt);
