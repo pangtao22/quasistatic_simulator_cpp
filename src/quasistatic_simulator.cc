@@ -940,6 +940,7 @@ Eigen::VectorXi QuasistaticSimulator::GetModelsIndicesIntoQ(
     const auto n_model = indices.size();
     models_indices(Eigen::seqN(i_start, n_model)) =
         Eigen::Map<const Eigen::VectorXi>(indices.data(), n_model);
+    i_start += n_model;
   }
   return models_indices;
 }
