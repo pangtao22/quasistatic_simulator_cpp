@@ -1250,6 +1250,7 @@ Eigen::MatrixXd QuasistaticSimulator::CalcDfDxLogIcecream(
   }
 
   DyDq += drake::math::ExtractGradient(y);
+  DyDq *= -1;
   H_llt.solveInPlace(DyDq); // Now it becomes Dv_nextDq.
 
   return CalcDq_nextDqFromDv_nextDq(DyDq, q_next_dict, v_star, h);
