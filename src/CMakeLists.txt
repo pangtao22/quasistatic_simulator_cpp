@@ -69,8 +69,11 @@ target_link_libraries(run_3link_arm_3d quasistatic_simulator)
 add_executable(run_iiwa_box_stacking run_iiwa_box_stacking.cc)
 target_link_libraries(run_iiwa_box_stacking quasistatic_simulator)
 
-add_executable(run_allegro_hand run_allegro_hand.cc)
-target_link_libraries(run_allegro_hand quasistatic_simulator)
+add_executable(run_allegro_hand_jacobian run_allegro_hand_jacobian.cc)
+target_link_libraries(run_allegro_hand_jacobian quasistatic_simulator)
+
+add_executable(run_allegro_hand_A run_allegro_hand_A.cc)
+target_link_libraries(run_allegro_hand_A quasistatic_simulator)
 
 add_executable(test_batch_simulator test_batch_simulator.cc)
 target_link_libraries(test_batch_simulator quasistatic_simulator gtest)
