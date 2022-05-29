@@ -94,6 +94,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
              py::return_value_policy::reference_internal)
         .def("get_contact_results", &Class::get_contact_results,
              py::return_value_policy::reference_internal)
+        .def("get_contact_results_copy", &Class::GetContactResultsCopy)
         .def("get_sim_params", &Class::get_sim_params,
              py::return_value_policy::reference_internal)
         .def("num_actuated_dofs", &Class::num_actuated_dofs)

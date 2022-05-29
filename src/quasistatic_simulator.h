@@ -112,6 +112,10 @@ public:
     return contact_results_;
   }
 
+  drake::multibody::ContactResults<double> GetContactResultsCopy() const {
+    return contact_results_;
+  }
+
   void update_sim_params(const QuasistaticSimParameters &new_params) {
     sim_params_ = new_params;
   }
