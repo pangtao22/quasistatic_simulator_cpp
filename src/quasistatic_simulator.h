@@ -190,6 +190,9 @@ public:
   ConvertColVToQdot(const ModelInstanceIndexToVecMap &q_dict,
                     const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
 
+  ModelInstanceIndexToMatrixMap
+  CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
+
 private:
   static Eigen::Matrix<double, 4, 3>
   CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
@@ -271,9 +274,6 @@ private:
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
   CalcSignedDistancePairsFromCollisionPairs(
       std::vector<int> const *active_contact_indices = nullptr) const;
-
-  ModelInstanceIndexToMatrixMap
-  CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
 
   void UpdateQdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v_star,
                         const QuasistaticSimParameters &params,

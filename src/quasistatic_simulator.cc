@@ -1506,14 +1506,7 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
   ModelInstanceIndexToMatrixMap M_u_dict;
   for (const auto &model : models_unactuated_) {
     const auto &idx_v_model = velocity_indices_.at(model);
-    const auto n_v_i = idx_v_model.size();
-    MatrixXd M_u(n_v_i, n_v_i);
-    for (int i = 0; i < n_v_i; i++) {
-      for (int j = 0; j < n_v_i; j++) {
-        M_u(i, j) = M(idx_v_model[i], idx_v_model[j]);
-      }
-    }
-    M_u_dict[model] = M_u;
+    M_u_dict[model] = M(idx_v_model, idx_v_model);
   }
 
   if (unactuated_mass_scale == 0 or std::isnan(unactuated_mass_scale)) {
@@ -1523,15 +1516,16 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
   std::unordered_map<drake::multibody::ModelInstanceIndex, double>
       max_eigen_value_M_u;
   for (const auto &model : models_unactuated_) {
+    //TODO: use the eigen value instead of maximum
     max_eigen_value_M_u[model] = M_u_dict.at(model).diagonal().maxCoeff();
   }
 
   const double min_K_a_h2 = min_K_a_ * h * h;
 
   for (auto &[model, M_u] : M_u_dict) {
-    auto epsilon =
+    auto scale =
         min_K_a_h2 / max_eigen_value_M_u[model] / unactuated_mass_scale;
-    M_u *= epsilon;
+    M_u *= scale;
   }
 
   return M_u_dict;
