@@ -9,6 +9,7 @@
 #include "contact_jacobian_calculator.h"
 #include "log_barrier_solver.h"
 #include "qp_derivatives.h"
+#include "socp_derivatives.h"
 
 /*
  * Denotes whether the indices are those of a model's configuration vector
@@ -86,6 +87,15 @@ public:
     return sim_params_;
   }
 
+  /*
+   * Technically it only makes sense for Bodies to float. But our convention
+   * is that un-actuated model instances only consist of one rigid body.
+   */
+  [[nodiscard]] bool
+  is_model_floating(drake::multibody::ModelInstanceIndex m) const {
+    return is_3d_floating_.at(m);
+  }
+
   const drake::geometry::QueryObject<double> &get_query_object() const {
     return *query_object_;
   };
@@ -99,6 +109,10 @@ public:
   }
 
   const drake::multibody::ContactResults<double> &get_contact_results() const {
+    return contact_results_;
+  }
+
+  drake::multibody::ContactResults<double> GetContactResultsCopy() const {
     return contact_results_;
   }
 
@@ -149,29 +163,105 @@ public:
   ModelInstanceIndexToVecMap
   GetQaCmdDictFromVec(const Eigen::Ref<const Eigen::VectorXd> &q_a_cmd) const;
 
+  Eigen::VectorXi GetQaIndicesIntoQ() const;
+  Eigen::VectorXi GetQuIndicesIntoQ() const;
+  Eigen::VectorXi GetModelsIndicesIntoQ(
+      const std::set<drake::multibody::ModelInstanceIndex> &models) const;
+
+  static Eigen::VectorXd
+  CalcDynamics(QuasistaticSimulator *q_sim,
+               const Eigen::Ref<const Eigen::VectorXd> &q,
+               const Eigen::Ref<const Eigen::VectorXd> &u,
+               const QuasistaticSimParameters &sim_params);
+
+  /*
+   * Wrapper around QuasistaticSimulator::Step, which takes as inputs state
+   * and input vectors, and returns the next state as a vector.
+   */
+  Eigen::VectorXd CalcDynamics(const Eigen::Ref<const Eigen::VectorXd> &q,
+                               const Eigen::Ref<const Eigen::VectorXd> &u,
+                               const QuasistaticSimParameters &sim_params);
+
+  Eigen::MatrixXd
+  ConvertRowVToQdot(const ModelInstanceIndexToVecMap &q_dict,
+                    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
+
+  Eigen::MatrixXd
+  ConvertColVToQdot(const ModelInstanceIndexToVecMap &q_dict,
+                    const Eigen::Ref<const Eigen::MatrixXd> &M_v) const;
+
+  ModelInstanceIndexToMatrixMap
+  CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
+
 private:
+  static Eigen::Matrix<double, 4, 3>
+  CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  static Eigen::Matrix<double, 3, 4>
+  CalcNQdot2W(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  Eigen::Map<const Eigen::VectorXi>
+  GetIndicesAsVec(const drake::multibody::ModelInstanceIndex &model,
+                  ModelIndicesMode mode) const;
+
+  void AddDNDq2A(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                 drake::EigenPtr<Eigen::MatrixXd> A_ptr) const;
+
   [[nodiscard]] std::vector<int>
   GetIndicesForModel(drake::multibody::ModelInstanceIndex idx,
                      ModelIndicesMode mode) const;
 
   void CalcQAndTauH(const ModelInstanceIndexToVecMap &q_dict,
                     const ModelInstanceIndexToVecMap &q_a_cmd_dict,
-                    const ModelInstanceIndexToVecMap &tau_ext_dict,
-                    const double h, Eigen::MatrixXd *Q_ptr,
-                    Eigen::VectorXd *tau_h_ptr,
-                    const double unactuated_mass_scale) const;
+                    const ModelInstanceIndexToVecMap &tau_ext_dict, double h,
+                    Eigen::MatrixXd *Q_ptr, Eigen::VectorXd *tau_h_ptr,
+                    double unactuated_mass_scale) const;
 
   Eigen::MatrixXd CalcDfDu(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const double h,
+                           double h,
                            const ModelInstanceIndexToVecMap &q_dict) const;
-  Eigen::MatrixXd CalcDfDx(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
-                           const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
-                           const ModelInstanceIndexToVecMap &q_dict,
-                           const double h,
-                           const Eigen::Ref<const Eigen::MatrixXd> &Jn,
-                           const int n_d) const;
-  static Eigen::Matrix<double, 4, 3>
-  CalcE(const Eigen::Ref<const Eigen::Vector4d> &Q);
+
+  Eigen::MatrixXd CalcDfDxQp(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                             const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+                             const Eigen::Ref<const Eigen::MatrixXd> &Jn,
+                             const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                             const ModelInstanceIndexToVecMap &q_dict, double h,
+                             size_t n_d) const;
+
+  Eigen::MatrixXd
+  CalcDfDxSocp(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+               const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDe,
+               const std::vector<Eigen::Matrix3Xd> &J_list,
+               const Eigen::Ref<const Eigen::VectorXd> &v_star,
+               const ModelInstanceIndexToVecMap &q_dict,
+               const ModelInstanceIndexToVecMap &q_next_dict,
+               double h) const;
+  /*
+   * Adds Dv_nextDb * DbDq to Dv_nextDq.
+   */
+  void CalcDv_nextDbDq(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDb,
+                       double h,
+                       drake::EigenPtr<Eigen::MatrixXd> Dv_nextDq_ptr) const;
+
+  Eigen::MatrixXd
+  CalcDq_nextDqFromDv_nextDq(const Eigen::Ref<const Eigen::MatrixXd> &Dv_nextDq,
+                             const ModelInstanceIndexToVecMap &q_dict,
+                             const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                             double h) const;
+
+  Eigen::MatrixXd
+  CalcDfDxLogIcecream(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                      const ModelInstanceIndexToVecMap &q_dict,
+                      const ModelInstanceIndexToVecMap &q_next_dict, double h,
+                      double kappa,
+                      const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
+
+  Eigen::MatrixXd CalcDfDxLogPyramid(
+      const Eigen::Ref<const Eigen::VectorXd> &v_star,
+      const ModelInstanceIndexToVecMap &q_dict,
+      const ModelInstanceIndexToVecMap &q_next_dict,
+      const QuasistaticSimParameters &params,
+      const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,
@@ -182,10 +272,8 @@ private:
   CalcCollisionPairs(double contact_detection_tolerance) const;
 
   std::vector<drake::geometry::SignedDistancePair<drake::AutoDiffXd>>
-  CalcSignedDistancePairsFromCollisionPairs() const;
-
-  ModelInstanceIndexToMatrixMap
-  CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
+  CalcSignedDistancePairsFromCollisionPairs(
+      std::vector<int> const *active_contact_indices = nullptr) const;
 
   void UpdateQdictFromV(const Eigen::Ref<const Eigen::VectorXd> &v_star,
                         const QuasistaticSimParameters &params,
@@ -195,10 +283,10 @@ private:
                            const ModelInstanceIndexToVecMap &q_a_cmd_dict,
                            const ModelInstanceIndexToVecMap &tau_ext_dict,
                            const QuasistaticSimParameters &params,
-                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h,
-                           Eigen::MatrixXd *Jn, Eigen::MatrixXd *J,
-                           Eigen::VectorXd *phi,
-                           Eigen::VectorXd *phi_constraints) const;
+                           Eigen::MatrixXd *Q, Eigen::VectorXd *tau_h_ptr,
+                           Eigen::MatrixXd *Jn_ptr, Eigen::MatrixXd *J_ptr,
+                           Eigen::VectorXd *phi_ptr,
+                           Eigen::VectorXd *phi_constraints_ptr) const;
 
   void CalcIcecreamMatrices(const ModelInstanceIndexToVecMap &q_dict,
                             const ModelInstanceIndexToVecMap &q_a_cmd_dict,
@@ -210,14 +298,12 @@ private:
 
   static void CalcContactResultsQp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const Eigen::Ref<const Eigen::VectorXd> &beta_star, const int n_d,
-      const double h,
+      const Eigen::Ref<const Eigen::VectorXd> &beta_star, int n_d, double h,
       drake::multibody::ContactResults<double> *contact_results);
 
   static void CalcContactResultsSocp(
       const std::vector<ContactPairInfo<double>> &contact_info_list,
-      const std::vector<Eigen::Vector3d> &beta_star,
-      const double h,
+      const std::vector<Eigen::VectorXd> &lambda_star, double h,
       drake::multibody::ContactResults<double> *contact_results);
 
   void ForwardQp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -235,7 +321,8 @@ private:
                    const QuasistaticSimParameters &params,
                    ModelInstanceIndexToVecMap *q_dict_ptr,
                    Eigen::VectorXd *v_star_ptr,
-                   std::vector<Eigen::Vector3d> *beta_star_ptr);
+                   std::vector<Eigen::VectorXd> *lambda_star_ptr,
+                   std::vector<Eigen::VectorXd> *e_list);
 
   void
   ForwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
@@ -270,19 +357,33 @@ private:
                   const ModelInstanceIndexToVecMap &q_dict,
                   const ModelInstanceIndexToVecMap &q_dict_next,
                   const Eigen::Ref<const Eigen::VectorXd> &v_star,
-                  const Eigen::Ref<const Eigen::VectorXd> &beta_star,
+                  const Eigen::Ref<const Eigen::VectorXd> &lambda_star,
                   const QuasistaticSimParameters &params);
+
+  void BackwardSocp(const Eigen::Ref<const Eigen::MatrixXd> &Q,
+                    const Eigen::Ref<const Eigen::VectorXd> &tau_h,
+                    const std::vector<Eigen::Matrix3Xd> &J_list,
+                    const std::vector<Eigen::VectorXd> &e_list,
+                    const Eigen::Ref<const Eigen::VectorXd> &phi,
+                    const ModelInstanceIndexToVecMap &q_dict,
+                    const ModelInstanceIndexToVecMap &q_dict_next,
+                    const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                    const std::vector<Eigen::VectorXd> &lambda_star_list,
+                    const QuasistaticSimParameters &params);
 
   void
   BackwardLogPyramid(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                      const Eigen::Ref<const Eigen::MatrixXd> &J,
                      const Eigen::Ref<const Eigen::VectorXd> &phi_constraints,
                      const ModelInstanceIndexToVecMap &q_dict,
+                     const ModelInstanceIndexToVecMap &q_next_dict,
                      const Eigen::Ref<const Eigen::VectorXd> &v_star,
                      const QuasistaticSimParameters &params,
                      Eigen::LLT<Eigen::MatrixXd> const *const H_llt);
 
   void BackwardLogIcecream(const ModelInstanceIndexToVecMap &q_dict,
+                           const ModelInstanceIndexToVecMap &q_next_dict,
+                           const Eigen::Ref<const Eigen::VectorXd> &v_star,
                            const QuasistaticSimParameters &params,
                            const Eigen::LLT<Eigen::MatrixXd> &H_llt);
 
@@ -295,9 +396,10 @@ private:
   std::unique_ptr<SocpLogBarrierSolver> solver_log_icecream_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
-  // QP derivatives. Refer to the python implementation of
+  // Optimization derivatives. Refer to the python implementation of
   //  QuasistaticSimulator for more details.
   std::unique_ptr<QpDerivativesActive> dqp_;
+  std::unique_ptr<SocpDerivatives> dsocp_;
   Eigen::MatrixXd Dq_nextDq_;
   Eigen::MatrixXd Dq_nextDqa_cmd_;
 

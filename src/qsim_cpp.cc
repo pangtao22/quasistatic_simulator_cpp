@@ -7,6 +7,7 @@
 #include "log_barrier_solver.h"
 #include "qp_derivatives.h"
 #include "quasistatic_simulator.h"
+#include "socp_derivatives.h"
 
 namespace py = pybind11;
 
@@ -73,6 +74,13 @@ PYBIND11_MODULE(qsim_cpp, m) {
             py::overload_cast<const ModelInstanceIndexToVecMap &,
                               const ModelInstanceIndexToVecMap &>(&Class::Step),
             py::arg("q_a_cmd_dict"), py::arg("tau_ext_dict"))
+        .def("calc_dynamics",
+             py::overload_cast<const Eigen::Ref<const Eigen::VectorXd> &,
+                               const Eigen::Ref<const Eigen::VectorXd> &,
+                               const QuasistaticSimParameters &>(
+                 &Class::CalcDynamics),
+             py::arg("q"), py::arg("u"), py::arg("sim_params"))
+        .def("calc_scaled_mass_matrix", &Class::CalcScaledMassMatrix)
         .def("calc_tau_ext", &Class::CalcTauExt)
         .def("get_model_instance_name_to_index_map",
              &Class::GetModelInstanceNameToIndexMap)
@@ -87,6 +95,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
              py::return_value_policy::reference_internal)
         .def("get_contact_results", &Class::get_contact_results,
              py::return_value_policy::reference_internal)
+        .def("get_contact_results_copy", &Class::GetContactResultsCopy)
         .def("get_sim_params", &Class::get_sim_params,
              py::return_value_policy::reference_internal)
         .def("num_actuated_dofs", &Class::num_actuated_dofs)
@@ -99,7 +108,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_q_dict_from_vec", &Class::GetQDictFromVec)
         .def("get_q_vec_from_dict", &Class::GetQVecFromDict)
         .def("get_q_a_cmd_vec_from_dict", &Class::GetQaCmdVecFromDict)
-        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec);
+        .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec)
+        .def("get_q_a_indices_into_q", &Class::GetQaIndicesIntoQ)
+        .def("get_q_u_indices_into_q", &Class::GetQuIndicesIntoQ);
   }
 
   {
@@ -112,9 +123,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
              py::arg("model_directive_path"), py::arg("robot_stiffness_str"),
              py::arg("object_sdf_paths"), py::arg("sim_params"))
         .def("calc_dynamics_parallel", &Class::CalcDynamicsParallel)
-        .def("calc_bundled_B_trj", &Class::CalcBundledBTrj)
-        .def("calc_bundled_B_trj_direct", &Class::CalcBundledBTrjDirect)
+        .def("calc_bundled_ABc_trj", &Class::CalcBundledABcTrj)
         .def("sample_gaussian_matrix", &Class::SampleGaussianMatrix)
+        .def("calc_Bc_lstsq", &Class::CalcBcLstsq)
         .def("get_num_max_parallel_executions",
              &Class::get_num_max_parallel_executions)
         .def("set_num_max_parallel_executions",
@@ -124,6 +135,16 @@ PYBIND11_MODULE(qsim_cpp, m) {
   {
     using Class = QpDerivativesActive;
     py::class_<Class>(m, "QpDerivativesActive")
+        .def(py::init<double>(), py::arg("tol"))
+        .def("UpdateProblem", &Class::UpdateProblem)
+        .def("get_DzDe", &Class::get_DzDe)
+        .def("get_DzDb", &Class::get_DzDb)
+        .def("get_DzDvecG_active", &Class::get_DzDvecG_active);
+  }
+
+  {
+    using Class = SocpDerivatives;
+    py::class_<Class>(m, "SocpDerivatives")
         .def(py::init<double>(), py::arg("tol"))
         .def("UpdateProblem", &Class::UpdateProblem)
         .def("get_DzDe", &Class::get_DzDe)

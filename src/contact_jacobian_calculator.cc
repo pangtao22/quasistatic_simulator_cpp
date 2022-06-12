@@ -178,8 +178,9 @@ template <class T>
 void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     const drake::systems::Context<T> *context_plant,
     const vector<drake::geometry::SignedDistancePair<T>> &sdps, const int n_d,
-    drake::VectorX<T> *phi_ptr, drake::VectorX<T> *phi_constraints_ptr,
-    drake::MatrixX<T> *Jn_ptr, drake::MatrixX<T> *J_ptr) const {
+    drake::VectorX<T> *phi_ptr,
+    drake::MatrixX<T> *Jn_ptr,
+    std::vector<drake::MatrixX<T>> *J_list_ptr) const {
   UpdateContactPairInfo(context_plant, sdps);
 
   const auto n_c = sdps.size();
@@ -187,15 +188,11 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
   const auto n_f = n_d * n_c;
 
   VectorX<T> &phi = *phi_ptr;
-  VectorX<T> &phi_constraints = *phi_constraints_ptr;
-  MatrixX<T> &J = *J_ptr;
   MatrixX<T> &Jn = *Jn_ptr;
   phi.resize(n_c);
-  phi_constraints.resize(n_f);
-  J.resize(n_f, n_v);
   Jn.resize(n_c, n_v);
+  J_list_ptr->clear();
 
-  int j_start = 0;
   for (int i_c = 0; i_c < n_c; i_c++) {
     const auto &sdp = sdps[i_c];
     const auto &cpi = contact_pairs_[i_c];
@@ -206,13 +203,11 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
 
     contact_pairs_[i_c].t_W = CalcTangentVectors<T>(sdp.nhat_BA_W, n_d);
     const auto &d_W = contact_pairs_[i_c].t_W;
+    J_list_ptr->template emplace_back(n_d, n_v);
+    MatrixX<T>& J_i_c = J_list_ptr->back();
     for (int j = 0; j < n_d; j++) {
-      int idx = j_start + j;
-      J.row(idx) = Jn.row(i_c) + mu * d_W.col(j).transpose() * cpi.Jc;
-      phi_constraints[idx] = phi[i_c];
+      J_i_c.row(j) = Jn.row(i_c) + mu * d_W.col(j).transpose() * cpi.Jc;
     }
-
-    j_start += n_d;
   }
 }
 
@@ -230,7 +225,7 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
   VectorX<T> &phi = *phi_ptr;
   std::vector<drake::Matrix3X<T>> &J_list = *J_list_ptr;
   phi.resize(n_c);
-  J_list.resize(n_c);
+  J_list.clear();
 
   for (int i_c = 0; i_c < n_c; i_c++) {
     const auto &sdp = sdps[i_c];
@@ -238,9 +233,8 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiSocp(
     const auto mu = get_friction_coefficient(i_c);
 
     phi[i_c] = sdp.distance;
-
-    Matrix3X<T> &J_i = J_list[i_c];
-    J_i.resize(3, n_v);
+    J_list.template emplace_back(3, n_v);
+    Matrix3X<T> &J_i = J_list.back();
     const drake::Matrix3<T> R =
         drake::math::RotationMatrix<T>::MakeFromOneUnitVector(sdp.nhat_BA_W, 2)
             .matrix();

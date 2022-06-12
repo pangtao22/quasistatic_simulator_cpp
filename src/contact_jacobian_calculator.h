@@ -6,7 +6,7 @@
 
 #include "quasistatic_sim_params.h"
 
-template <class T> struct ContactPairInfo {
+template <typename T> struct ContactPairInfo {
   // Contact normal pointing to body A from body B.
   drake::Vector3<T> nhat_BA_W;
 
@@ -28,7 +28,7 @@ template <class T> struct ContactPairInfo {
   drake::geometry::GeometryId id_B;
 };
 
-template <class T> class ContactJacobianCalculator {
+template <typename T> class ContactJacobianCalculator {
 public:
   ContactJacobianCalculator(
       const drake::systems::Diagram<T> *diagram,
@@ -57,9 +57,9 @@ public:
   void CalcJacobianAndPhiQp(
       const drake::systems::Context<T> *context_plant,
       const std::vector<drake::geometry::SignedDistancePair<T>> &sdps,
-      const int n_d, drake::VectorX<T> *phi_ptr,
-      drake::VectorX<T> *phi_constraints_ptr, drake::MatrixX<T> *Jn_ptr,
-      drake::MatrixX<T> *J_ptr) const;
+      int n_d, drake::VectorX<T> *phi_ptr,
+      drake::MatrixX<T> *Jn_ptr,
+      std::vector<drake::MatrixX<T>> *J_list_ptr) const;
 
   void CalcJacobianAndPhiSocp(
       const drake::systems::Context<T> *context_plant,
