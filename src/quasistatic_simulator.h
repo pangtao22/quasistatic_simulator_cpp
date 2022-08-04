@@ -193,6 +193,11 @@ public:
   ModelInstanceIndexToMatrixMap
   CalcScaledMassMatrix(double h, double unactuated_mass_scale) const;
 
+  std::unordered_map<
+      drake::multibody::ModelInstanceIndex,
+      std::unordered_map<std::string, Eigen::VectorXd>>
+  GetActuatedJointLimits() const;
+
 private:
   static Eigen::Matrix<double, 4, 3>
   CalcNW2Qdot(const Eigen::Ref<const Eigen::Vector4d> &Q);
@@ -234,8 +239,7 @@ private:
                const std::vector<Eigen::Matrix3Xd> &J_list,
                const Eigen::Ref<const Eigen::VectorXd> &v_star,
                const ModelInstanceIndexToVecMap &q_dict,
-               const ModelInstanceIndexToVecMap &q_next_dict,
-               double h) const;
+               const ModelInstanceIndexToVecMap &q_next_dict, double h) const;
   /*
    * Adds Dv_nextDb * DbDq to Dv_nextDq.
    */
@@ -256,12 +260,12 @@ private:
                       double kappa,
                       const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
-  Eigen::MatrixXd CalcDfDxLogPyramid(
-      const Eigen::Ref<const Eigen::VectorXd> &v_star,
-      const ModelInstanceIndexToVecMap &q_dict,
-      const ModelInstanceIndexToVecMap &q_next_dict,
-      const QuasistaticSimParameters &params,
-      const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
+  Eigen::MatrixXd
+  CalcDfDxLogPyramid(const Eigen::Ref<const Eigen::VectorXd> &v_star,
+                     const ModelInstanceIndexToVecMap &q_dict,
+                     const ModelInstanceIndexToVecMap &q_next_dict,
+                     const QuasistaticSimParameters &params,
+                     const Eigen::LLT<Eigen::MatrixXd> &H_llt) const;
 
   void CalcUnconstrainedBFromHessian(const Eigen::LLT<Eigen::MatrixXd> &H_llt,
                                      const QuasistaticSimParameters &params,

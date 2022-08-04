@@ -420,16 +420,16 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
     if (fm == ForwardDynamicsMode::kLogPyramidMp) {
       ForwardLogPyramid(Q, tau_h, J, phi_constraints, params, &q_next_dict,
                         &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict,
-                         v_star, params, nullptr);
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict, v_star,
+                         params, nullptr);
       return;
     }
 
     if (fm == ForwardDynamicsMode::kLogPyramidMy) {
       ForwardLogPyramidInHouse(Q, tau_h, J, phi_constraints, params,
                                &q_next_dict, &v_star);
-      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict,
-                         v_star, params, &solver_log_pyramid_->get_H_llt());
+      BackwardLogPyramid(Q, J, phi_constraints, q_dict, q_next_dict, v_star,
+                         params, &solver_log_pyramid_->get_H_llt());
       return;
     }
   }
@@ -1516,7 +1516,7 @@ QuasistaticSimulator::CalcScaledMassMatrix(double h,
   std::unordered_map<drake::multibody::ModelInstanceIndex, double>
       max_eigen_value_M_u;
   for (const auto &model : models_unactuated_) {
-    //TODO: use the eigen value instead of maximum
+    // TODO: use the eigen value instead of maximum
     max_eigen_value_M_u[model] = M_u_dict.at(model).diagonal().maxCoeff();
   }
 
@@ -1601,4 +1601,33 @@ QuasistaticSimulator::CalcDynamics(const Eigen::Ref<const VectorXd> &q,
                                    const Eigen::Ref<const VectorXd> &u,
                                    const QuasistaticSimParameters &sim_params) {
   return CalcDynamics(this, q, u, sim_params);
+}
+
+std::unordered_map<
+    drake::multibody::ModelInstanceIndex,
+    std::unordered_map<std::string, Eigen::VectorXd>>
+QuasistaticSimulator::GetActuatedJointLimits() const {
+  std::unordered_map<
+      drake::multibody::ModelInstanceIndex,
+      std::unordered_map<std::string, Eigen::VectorXd>> joint_limits;
+  for (const auto& model : models_actuated_) {
+    const auto n_q = plant_->num_positions(model);
+    joint_limits[model]["lower"] = Eigen::VectorXd(n_q);
+    joint_limits[model]["upper"] = Eigen::VectorXd(n_q);
+    const auto joint_indices = plant_->GetJointIndices(model);
+    int n_dofs = 0;
+    for (int i = 0; i < n_q; i++) {
+      const auto& joint = plant_->get_joint(joint_indices[i]);
+      n_dofs += joint.num_positions();
+      for (int j = 0; j < joint.num_positions(); j++) {
+        auto lower = joint.position_lower_limits();
+        auto upper = joint.position_upper_limits();
+        joint_limits[model]["lower"][i] = lower[0];
+        joint_limits[model]["upper"][i] = upper[0];
+      }
+    }
+    // No floating joints in the robots.
+    DRAKE_THROW_UNLESS(n_q == n_dofs);
+  }
+  return joint_limits;
 }
