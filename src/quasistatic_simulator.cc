@@ -1614,17 +1614,20 @@ QuasistaticSimulator::GetActuatedJointLimits() const {
     const auto n_q = plant_->num_positions(model);
     joint_limits[model]["lower"] = Eigen::VectorXd(n_q);
     joint_limits[model]["upper"] = Eigen::VectorXd(n_q);
-    const auto joint_indices = plant_->GetJointIndices(model);
     int n_dofs = 0;
-    for (int i = 0; i < n_q; i++) {
-      const auto& joint = plant_->get_joint(joint_indices[i]);
-      n_dofs += joint.num_positions();
-      for (int j = 0; j < joint.num_positions(); j++) {
+    for (const auto& joint_idx : plant_->GetJointIndices(model)) {
+      const auto& joint = plant_->get_joint(joint_idx);
+      const auto n_dof = joint.num_positions();
+      if (n_dof != 1) {
+        continue;
+      }
+      for (int j = 0; j < n_dof; j++) {
         auto lower = joint.position_lower_limits();
         auto upper = joint.position_upper_limits();
-        joint_limits[model]["lower"][i] = lower[0];
-        joint_limits[model]["upper"][i] = upper[0];
+        joint_limits[model]["lower"][n_dofs] = lower[0];
+        joint_limits[model]["upper"][n_dofs] = upper[0];
       }
+      n_dofs += n_dof;
     }
     // No floating joints in the robots.
     DRAKE_THROW_UNLESS(n_q == n_dofs);
