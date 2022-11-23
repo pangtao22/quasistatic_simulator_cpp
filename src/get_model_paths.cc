@@ -19,8 +19,9 @@ std::filesystem::path GetQsimModelsPath() {
 }
 
 std::filesystem::path GetRoboticsUtilitiesModelsPath() {
-  static auto robo_util_models_path =
-      GetPyPackagesPath() / path("robotics_utilities/models");
+  static auto robo_util_models_path = GetPyPackagesPath() /
+                                      path("robotics_utilities_pang") /
+                                      path("robotics_utilities/models");
   return robo_util_models_path;
 }
 
@@ -29,10 +30,7 @@ std::unordered_map<std::string, std::filesystem::path> GetPackageMap() {
 
   static std::unordered_map<std::string, std::filesystem::path> package_map = {
       {"quasistatic_simulator", GetQsimModelsPath()},
-      {"drake_manipulation_models", drake_path / "manipulation" / "models"}
-  };
+      {"drake_manipulation_models", drake_path / "manipulation" / "models"}};
 
   return package_map;
 }
-
-

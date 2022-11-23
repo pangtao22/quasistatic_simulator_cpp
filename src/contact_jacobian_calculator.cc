@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "contact_jacobian_calculator.h"
 
 using drake::AutoDiffXd;
@@ -178,8 +180,7 @@ template <class T>
 void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     const drake::systems::Context<T> *context_plant,
     const vector<drake::geometry::SignedDistancePair<T>> &sdps, const int n_d,
-    drake::VectorX<T> *phi_ptr,
-    drake::MatrixX<T> *Jn_ptr,
+    drake::VectorX<T> *phi_ptr, drake::MatrixX<T> *Jn_ptr,
     std::vector<drake::MatrixX<T>> *J_list_ptr) const {
   UpdateContactPairInfo(context_plant, sdps);
 
@@ -204,7 +205,7 @@ void ContactJacobianCalculator<T>::CalcJacobianAndPhiQp(
     contact_pairs_[i_c].t_W = CalcTangentVectors<T>(sdp.nhat_BA_W, n_d);
     const auto &d_W = contact_pairs_[i_c].t_W;
     J_list_ptr->template emplace_back(n_d, n_v);
-    MatrixX<T>& J_i_c = J_list_ptr->back();
+    MatrixX<T> &J_i_c = J_list_ptr->back();
     for (int j = 0; j < n_d; j++) {
       J_i_c.row(j) = Jn.row(i_c) + mu * d_W.col(j).transpose() * cpi.Jc;
     }

@@ -116,6 +116,8 @@ struct QuasistaticSimParameters {
   GradientMode gradient_mode{GradientMode::kNone};
   // ---------------------- pyramid cones only ---------------------------
   size_t nd_per_contact{0};
+  // free solvers: SCS for cone programs, OSQP for QPs.
+  bool use_free_solvers{false};
 };
 
 static char const *const kMultiBodyPlantName = "MultiBodyPlant";

@@ -9,10 +9,6 @@ using Eigen::VectorXd;
 using std::cout;
 using std::endl;
 
-LogBarrierSolver::LogBarrierSolver() {
-  solver_ = std::make_unique<drake::solvers::GurobiSolver>();
-}
-
 double LogBarrierSolver::BackStepLineSearch(
     const Eigen::Ref<const Eigen::MatrixXd> &Q,
     const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -217,6 +213,15 @@ void QpLogBarrierSolver::SolvePhaseOne(
   GetPhaseOneSolution(v, s, v0_ptr);
 }
 
+
+QpLogBarrierSolver::QpLogBarrierSolver(bool use_free_solver) {
+  if (use_free_solver) {
+    solver_ = std::make_unique<drake::solvers::OsqpSolver>();
+  } else {
+    solver_ = std::make_unique<drake::solvers::GurobiSolver>();
+  }
+}
+
 double
 QpLogBarrierSolver::CalcF(const Eigen::Ref<const Eigen::MatrixXd> &Q,
                           const Eigen::Ref<const Eigen::VectorXd> &b,
@@ -252,6 +257,14 @@ void QpLogBarrierSolver::CalcGradientAndHessian(
     double d = G.row(i) * v - e[i];
     *H_ptr += G.row(i).transpose() * G.row(i) / d / d;
     *Df_ptr += -G.row(i) / d;
+  }
+}
+
+SocpLogBarrierSolver::SocpLogBarrierSolver(bool use_free_solver) {
+  if (use_free_solver) {
+    solver_ = std::make_unique<drake::solvers::ScsSolver>();
+  } else {
+    solver_ = std::make_unique<drake::solvers::GurobiSolver>();
   }
 }
 

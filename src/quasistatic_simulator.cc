@@ -85,10 +85,14 @@ QuasistaticSimulator::QuasistaticSimulator(
     const std::unordered_map<std::string, std::string> &object_sdf_paths,
     QuasistaticSimParameters sim_params)
     : sim_params_(std::move(sim_params)),
+      solver_scs_(std::make_unique<drake::solvers::ScsSolver>()),
+      solver_osqp_(std::make_unique<drake::solvers::OsqpSolver>()),
       solver_grb_(std::make_unique<drake::solvers::GurobiSolver>()),
       solver_msk_(std::make_unique<drake::solvers::MosekSolver>()),
-      solver_log_pyramid_(std::make_unique<QpLogBarrierSolver>()),
-      solver_log_icecream_(std::make_unique<SocpLogBarrierSolver>()) {
+      solver_log_pyramid_(
+          std::make_unique<QpLogBarrierSolver>(sim_params.use_free_solvers)),
+      solver_log_icecream_(
+          std::make_unique<SocpLogBarrierSolver>(sim_params.use_free_solvers)) {
   auto builder = drake::systems::DiagramBuilder<double>();
 
   CreateMbp(&builder, model_directive_path, robot_stiffness_str,
@@ -187,6 +191,8 @@ QuasistaticSimulator::QuasistaticSimulator(
                                                              models_all_);
   cjc_ad_ = std::make_unique<ContactJacobianCalculator<AutoDiffXd>>(
       diagram_ad_.get(), models_all_);
+
+  contact_results_.set_plant(plant_);
 }
 
 std::vector<int> QuasistaticSimulator::GetIndicesForModel(
@@ -410,6 +416,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
         CalcContactResultsQp(cjc_->get_contact_pair_info_list(), beta_star,
                              params.nd_per_contact, params.h,
                              &contact_results_);
+        contact_results_.set_plant(plant_);
       }
 
       BackwardQp(Q, tau_h, Jn, J, phi_constraints, q_dict, q_next_dict, v_star,
@@ -452,6 +459,7 @@ void QuasistaticSimulator::Step(const ModelInstanceIndexToVecMap &q_a_cmd_dict,
       if (params.calc_contact_forces) {
         CalcContactResultsSocp(cjc_->get_contact_pair_info_list(),
                                lambda_star_list, params.h, &contact_results_);
+        contact_results_.set_plant(plant_);
       }
 
       BackwardSocp(Q, tau_h, J_list, e_list, phi, q_dict, q_next_dict, v_star,
@@ -535,8 +543,8 @@ void QuasistaticSimulator::ForwardQp(
   auto constraints = prog.AddLinearConstraint(
       -J, VectorXd::Constant(n_f, -std::numeric_limits<double>::infinity()), e,
       v);
-
-  solver_grb_->Solve(prog, {}, {}, &mp_result_);
+  auto solver = PickBestQpSolver(params);
+  solver->Solve(prog, {}, {}, &mp_result_);
   if (!mp_result_.is_success()) {
     throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
   }
@@ -583,24 +591,15 @@ void QuasistaticSimulator::ForwardSocp(
         prog.AddLorentzConeConstraint(J_list.at(i_c), e_list->back(), v));
   }
 
-  drake::solvers::SolverBase *solver;
-  const bool calc_dual = (params.calc_contact_forces or
-                          params.gradient_mode != GradientMode::kNone);
-  if (calc_dual) {
-    solver = solver_msk_.get();
-  } else {
-    // Do not need dual variables.
-    solver = solver_grb_.get();
-  }
-
+  auto solver = PickBestSocpSolver(params);
   solver->Solve(prog, {}, {}, &mp_result_);
   if (!mp_result_.is_success()) {
-    throw std::runtime_error("Quasistatic dynamics QP cannot be solved.");
+    throw std::runtime_error("Quasistatic dynamics SOCP cannot be solved.");
   }
 
   // Primal and dual solutions.
   v_star = mp_result_.GetSolution(v);
-  if (calc_dual) {
+  if (is_socp_calculating_dual(params)) {
     for (int i = 0; i < n_c; i++) {
       lambda_star_ptr->emplace_back(mp_result_.GetDualSolution(constraints[i]));
     }
@@ -647,8 +646,8 @@ void QuasistaticSimulator::ForwardLogPyramid(
     v_s_i[n_v_] = s[i];
     prog.AddExponentialConeConstraint(A.sparseView(), b, v_s_i);
   }
-
-  solver_msk_->Solve(prog, {}, {}, &mp_result_);
+  auto solver = PickBestConeSolver(params);
+  solver->Solve(prog, {}, {}, &mp_result_);
   if (!mp_result_.is_success()) {
     throw std::runtime_error(
         "Quasistatic dynamics Log Pyramid cannot be solved.");
@@ -1603,31 +1602,76 @@ QuasistaticSimulator::CalcDynamics(const Eigen::Ref<const VectorXd> &q,
   return CalcDynamics(this, q, u, sim_params);
 }
 
-std::unordered_map<
-    drake::multibody::ModelInstanceIndex,
-    std::unordered_map<std::string, Eigen::VectorXd>>
+std::unordered_map<drake::multibody::ModelInstanceIndex,
+                   std::unordered_map<std::string, Eigen::VectorXd>>
 QuasistaticSimulator::GetActuatedJointLimits() const {
-  std::unordered_map<
-      drake::multibody::ModelInstanceIndex,
-      std::unordered_map<std::string, Eigen::VectorXd>> joint_limits;
-  for (const auto& model : models_actuated_) {
+  std::unordered_map<drake::multibody::ModelInstanceIndex,
+                     std::unordered_map<std::string, Eigen::VectorXd>>
+      joint_limits;
+  for (const auto &model : models_actuated_) {
     const auto n_q = plant_->num_positions(model);
     joint_limits[model]["lower"] = Eigen::VectorXd(n_q);
     joint_limits[model]["upper"] = Eigen::VectorXd(n_q);
-    const auto joint_indices = plant_->GetJointIndices(model);
     int n_dofs = 0;
-    for (int i = 0; i < n_q; i++) {
-      const auto& joint = plant_->get_joint(joint_indices[i]);
-      n_dofs += joint.num_positions();
-      for (int j = 0; j < joint.num_positions(); j++) {
+    for (const auto &joint_idx : plant_->GetJointIndices(model)) {
+      const auto &joint = plant_->get_joint(joint_idx);
+      const auto n_dof = joint.num_positions();
+      if (n_dof != 1) {
+        continue;
+      }
+      for (int j = 0; j < n_dof; j++) {
         auto lower = joint.position_lower_limits();
         auto upper = joint.position_upper_limits();
-        joint_limits[model]["lower"][i] = lower[0];
-        joint_limits[model]["upper"][i] = upper[0];
+        joint_limits[model]["lower"][n_dofs] = lower[0];
+        joint_limits[model]["upper"][n_dofs] = upper[0];
       }
+      n_dofs += n_dof;
     }
     // No floating joints in the robots.
     DRAKE_THROW_UNLESS(n_q == n_dofs);
   }
   return joint_limits;
+}
+
+drake::solvers::SolverBase *QuasistaticSimulator::PickBestSocpSolver(
+    const QuasistaticSimParameters &params) const {
+  if (params.use_free_solvers) {
+    return solver_scs_.get();
+  }
+  // Commercial solvers.
+  if (is_socp_calculating_dual(params)) {
+    return solver_msk_.get();
+  }
+  return solver_grb_.get();
+}
+
+drake::solvers::SolverBase *QuasistaticSimulator::PickBestQpSolver(
+    const QuasistaticSimParameters &params) const {
+  if (params.use_free_solvers) {
+    return solver_osqp_.get();
+  }
+  return solver_grb_.get();
+}
+
+drake::solvers::SolverBase *QuasistaticSimulator::PickBestConeSolver(
+    const QuasistaticSimParameters &params) const {
+  if (params.use_free_solvers) {
+    return solver_scs_.get();
+  }
+  return solver_msk_.get();
+}
+
+void QuasistaticSimulator::print_solver_info_for_default_params() const {
+  const auto socp_solver_name =
+      PickBestConeSolver(sim_params_)->solver_id().name();
+  const auto qp_solver_name = PickBestQpSolver(sim_params_)->solver_id().name();
+  const auto cone_solver_name =
+      PickBestConeSolver(sim_params_)->solver_id().name();
+
+  cout << "=========== Solver Info ===========" << endl;
+  cout << "Using free solvers? " << sim_params_.use_free_solvers << endl;
+  cout << "SOCP solver: " << socp_solver_name << endl;
+  cout << "QP solver: " << qp_solver_name << endl;
+  cout << "Cone solver: " << cone_solver_name << endl;
+  cout << "===================================" << endl;
 }

@@ -43,6 +43,7 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def_readwrite("gradient_lstsq_tolerance",
                        &Class::gradient_lstsq_tolerance)
         .def_readwrite("nd_per_contact", &Class::nd_per_contact)
+        .def_readwrite("use_free_solvers", &Class::use_free_solvers)
         .def("__copy__", [](const Class &self) { return Class(self); })
         .def(
             "__deepcopy__",
@@ -111,7 +112,9 @@ PYBIND11_MODULE(qsim_cpp, m) {
         .def("get_q_a_cmd_dict_from_vec", &Class::GetQaCmdDictFromVec)
         .def("get_q_a_indices_into_q", &Class::GetQaIndicesIntoQ)
         .def("get_q_u_indices_into_q", &Class::GetQuIndicesIntoQ)
-        .def("get_actuated_joint_limits", &Class::GetActuatedJointLimits);
+        .def("get_actuated_joint_limits", &Class::GetActuatedJointLimits)
+        .def("print_solver_info_for_default_params",
+             &Class::print_solver_info_for_default_params);
   }
 
   {
