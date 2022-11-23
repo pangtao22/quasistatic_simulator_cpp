@@ -2,11 +2,12 @@
 #include <Eigen/Dense>
 
 #include "drake/solvers/gurobi_solver.h"
+#include "drake/solvers/osqp_solver.h"
+#include "drake/solvers/scs_solver.h"
 #include "drake/solvers/mathematical_program.h"
 
 class LogBarrierSolver {
 public:
-  LogBarrierSolver();
   virtual void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
                              const Eigen::Ref<const Eigen::VectorXd> &e,
                              drake::EigenPtr<Eigen::VectorXd> v0_ptr) const = 0;
@@ -79,7 +80,7 @@ public:
   const Eigen::LLT<Eigen::MatrixXd> &get_H_llt() const { return H_llt_; };
 
 protected:
-  std::unique_ptr<drake::solvers::GurobiSolver> solver_;
+  std::unique_ptr<drake::solvers::SolverBase> solver_;
   mutable drake::solvers::MathematicalProgramResult mp_result_;
 
   // Hyperparameters for line search.
@@ -114,7 +115,7 @@ private:
  */
 class QpLogBarrierSolver : public LogBarrierSolver {
 public:
-  QpLogBarrierSolver() : LogBarrierSolver(){};
+  explicit QpLogBarrierSolver(bool use_free_solver = false);
   void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
                      const Eigen::Ref<const Eigen::VectorXd> &e,
                      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const override;
@@ -160,7 +161,7 @@ public:
  */
 class SocpLogBarrierSolver : public LogBarrierSolver {
 public:
-  SocpLogBarrierSolver() : LogBarrierSolver(){};
+  explicit SocpLogBarrierSolver(bool use_free_solver = false);
   void SolvePhaseOne(const Eigen::Ref<const Eigen::MatrixXd> &G,
                      const Eigen::Ref<const Eigen::VectorXd> &e,
                      drake::EigenPtr<Eigen::VectorXd> v0_ptr) const override;

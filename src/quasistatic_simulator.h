@@ -5,6 +5,8 @@
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/mosek_solver.h"
+#include "drake/solvers/scs_solver.h"
+#include "drake/solvers/osqp_solver.h"
 
 #include "contact_jacobian_calculator.h"
 #include "log_barrier_solver.h"
@@ -197,6 +199,8 @@ public:
       drake::multibody::ModelInstanceIndex,
       std::unordered_map<std::string, Eigen::VectorXd>>
   GetActuatedJointLimits() const;
+
+  void print_solver_info_for_default_params() const;
 
 private:
   static Eigen::Matrix<double, 4, 3>
@@ -391,9 +395,24 @@ private:
                            const QuasistaticSimParameters &params,
                            const Eigen::LLT<Eigen::MatrixXd> &H_llt);
 
+  bool is_socp_calculating_dual(const QuasistaticSimParameters& params) const {
+    return params.calc_contact_forces or
+        params.gradient_mode != GradientMode::kNone;
+  }
+  drake::solvers::SolverBase* PickBestSocpSolver(
+      const QuasistaticSimParameters& params) const;
+
+  drake::solvers::SolverBase* PickBestQpSolver(
+      const QuasistaticSimParameters& params) const;
+
+  drake::solvers::SolverBase* PickBestConeSolver(
+      const QuasistaticSimParameters& params) const;
+
   QuasistaticSimParameters sim_params_;
 
   // Solvers.
+  std::unique_ptr<drake::solvers::ScsSolver> solver_scs_;
+  std::unique_ptr<drake::solvers::OsqpSolver> solver_osqp_;
   std::unique_ptr<drake::solvers::GurobiSolver> solver_grb_;
   std::unique_ptr<drake::solvers::MosekSolver> solver_msk_;
   std::unique_ptr<QpLogBarrierSolver> solver_log_pyramid_;
