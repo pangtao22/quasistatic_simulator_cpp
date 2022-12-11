@@ -1,4 +1,6 @@
 # Quasistatic Simulator C++
+## Note
+This repo has been merged into [`quasistatic_simualtor`](https://github.com/pangtao22/quasistatic_simulator) and will no longer be updated. 
 
 ## Model paths
 Until this repo and `quasistatic_simulator` are merged, the relative paths between this repo and `quasistatic_simulator` need to be manually maintained so that the model files in `quasistatic_simulator` can be found by the C++ backend in this repo. 
